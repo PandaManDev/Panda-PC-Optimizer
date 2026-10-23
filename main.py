@@ -107,6 +107,9 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "⚙   Background services", False, lambda: self.show_services())
         self.nav_button(sidebar, "⇅   Network monitor", False, lambda: self.show_network_monitor())
         self.nav_button(sidebar, "⚡   Power plans", False, lambda: self.show_power_plans())
+        self.nav_button(sidebar, "🧹   Safe cleanup", False, lambda: self.show_safe_cleanup())
+        self.nav_button(sidebar, "🚀   Startup apps", False, lambda: self.show_startup_apps())
+        self.nav_button(sidebar, "🔋   Battery report", False, lambda: self.create_battery_report())
         self.nav_button(sidebar, "⚙   Windows tools", False, lambda: self.open_uri("ms-settings:"))
         self.nav_button(sidebar, "♡   Performance tips", False, lambda: self.show_tips())
         self.nav_button(sidebar, "▥   Performance history", False, lambda: self.show_history())
@@ -567,6 +570,202 @@ class PandaOptimizer(tk.Tk):
         self.button(buttons, "▶  Start selected", lambda: act("start"), primary=True, compact=True).pack(side="right", padx=(8, 0))
         self.button(buttons, "■  Stop selected", lambda: act("stop"), compact=True).pack(side="right")
         load_services()
+
+    def show_safe_cleanup(self):
+        """Preview and remove only old files inside the current user's temp directory."""
+        import datetime
+        import tempfile
+
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Safe Cleanup")
+        win.geometry("760x560")
+        win.minsize(600, 440)
+        win.configure(bg=BG)
+        self.label(win, "Safe temporary-file cleanup", 20, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Scans only your Windows user TEMP folder. By default, only files at least 7 days old are eligible. Downloads, Documents, browser profiles, and Windows system folders are not touched.", 9, MUTED, bg=BG, wraplength=700, justify="left").pack(anchor="w", padx=22, pady=(0, 14))
+        folder = tempfile.gettempdir()
+        self.label(win, "SCAN LOCATION", 8, PURPLE, True, bg=BG).pack(anchor="w", padx=22)
+        self.label(win, folder, 9, MUTED, bg=BG, wraplength=700, justify="left").pack(anchor="w", padx=22, pady=(3, 14))
+        summary = tk.StringVar(value="Click Scan to preview eligible files. Nothing is deleted during scanning.")
+        tk.Label(win, textvariable=summary, bg=PANEL, fg=FG, font=("Segoe UI", 10), justify="left", anchor="w", wraplength=690, padx=14, pady=12).pack(fill="x", padx=22, pady=(0, 12))
+        wrap = tk.Frame(win, bg=PANEL)
+        wrap.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        tree = ttk.Treeview(wrap, columns=("name", "size", "age"), show="headings")
+        for col, title, width in [("name", "FILE / FOLDER", 410), ("size", "SIZE", 100), ("age", "AGE", 100)]:
+            tree.heading(col, text=title)
+            tree.column(col, width=width, anchor="w" if col == "name" else "center")
+        scroll = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        eligible = []
+
+        def fmt_size(n):
+            value = float(n)
+            for unit in ("B", "KB", "MB", "GB", "TB"):
+                if value < 1024 or unit == "TB":
+                    return f"{value:.1f} {unit}"
+                value /= 1024
+            return f"{value:.1f} TB"
+
+        def scan():
+            eligible.clear()
+            tree.delete(*tree.get_children())
+            cutoff = time.time() - 7 * 24 * 60 * 60
+            total = 0
+            try:
+                for root, dirs, files in os.walk(folder, topdown=True):
+                    # Avoid traversing reparse points/symlink directories.
+                    dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+                    for name in files:
+                        path = os.path.join(root, name)
+                        try:
+                            if os.path.islink(path):
+                                continue
+                            st = os.stat(path, follow_symlinks=False)
+                            if st.st_mtime > cutoff or not os.path.isfile(path):
+                                continue
+                            eligible.append(path)
+                            total += st.st_size
+                            age_days = max(7, int((time.time() - st.st_mtime) / 86400))
+                            tree.insert("", "end", values=(os.path.relpath(path, folder), fmt_size(st.st_size), f"{age_days} days"))
+                        except (OSError, PermissionError):
+                            continue
+                summary.set(f"Preview: {len(eligible)} old file(s), {fmt_size(total)} potentially reclaimable. Locked files and files that Windows protects will be skipped. No files have been deleted.")
+            except Exception as exc:
+                summary.set("Scan failed: " + str(exc)[:250])
+
+        def clean():
+            if not eligible:
+                messagebox.showinfo("Nothing to clean", "Scan first. No eligible files were found.", parent=win)
+                return
+            total_count = len(eligible)
+            if not messagebox.askyesno("Confirm safe cleanup", f"Attempt to delete up to {total_count} files older than 7 days from your user TEMP folder?\n\nOnly the previewed paths will be attempted. Some apps may need temporary files; close apps first. Locked files will be skipped.", icon="warning", parent=win):
+                return
+            removed = 0
+            freed = 0
+            failed = 0
+            cutoff = time.time() - 7 * 24 * 60 * 60
+            for path in list(eligible):
+                try:
+                    if os.path.commonpath([os.path.abspath(folder), os.path.abspath(path)]) != os.path.abspath(folder):
+                        failed += 1
+                        continue
+                    if os.path.islink(path) or not os.path.isfile(path):
+                        failed += 1
+                        continue
+                    st = os.stat(path, follow_symlinks=False)
+                    if st.st_mtime > cutoff:
+                        failed += 1
+                        continue
+                    os.remove(path)
+                    removed += 1
+                    freed += st.st_size
+                except (OSError, PermissionError, ValueError):
+                    failed += 1
+            eligible.clear()
+            scan()
+            summary.set(f"Cleanup finished: removed {removed} file(s), freed about {fmt_size(freed)}. Skipped or changed: {failed}. Scan again later to review any remaining files.")
+            messagebox.showinfo("Cleanup finished", f"Removed {removed} file(s).\nApproximate space freed: {fmt_size(freed)}\nSkipped/changed files: {failed}", parent=win)
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "Scan / preview", scan, primary=True).pack(side="left")
+        self.button(actions, "Clean previewed files…", clean).pack(side="right")
+        self.label(win, "Safety note: this is not a registry cleaner and does not promise a CPU boost. Temporary files currently in use may remain.", 8, ORANGE, bg=BG, wraplength=700, justify="left").pack(anchor="w", padx=22, pady=(0, 12))
+
+    def show_startup_apps(self):
+        """Read common Windows startup locations without changing or disabling entries."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Startup Apps")
+        win.geometry("900x560")
+        win.minsize(680, 420)
+        win.configure(bg=BG)
+        self.label(win, "Startup apps inspector", 20, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Read-only view of common Run registry entries and Startup folders. This tool does not disable, delete, or modify startup items.", 9, MUTED, bg=BG, wraplength=840, justify="left").pack(anchor="w", padx=22, pady=(0, 14))
+        wrap = tk.Frame(win, bg=PANEL)
+        wrap.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        tree = ttk.Treeview(wrap, columns=("source", "name", "command"), show="headings")
+        for col, title, width in [("source", "LOCATION", 180), ("name", "NAME", 180), ("command", "COMMAND / PATH", 450)]:
+            tree.heading(col, text=title)
+            tree.column(col, width=width, anchor="w")
+        scroll = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        status = tk.StringVar(value="Click Refresh to inspect common startup locations.")
+        tk.Label(win, textvariable=status, bg=BG, fg=MUTED, font=("Segoe UI", 9), anchor="w", justify="left", wraplength=840).pack(fill="x", padx=22, pady=(0, 12))
+
+        def scan():
+            tree.delete(*tree.get_children())
+            count = 0
+            errors = []
+            try:
+                import winreg
+                locations = [
+                    ("Current user", winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+                    ("All users", winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+                    ("Current user (32-bit)", winreg.HKEY_CURRENT_USER, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"),
+                    ("All users (32-bit)", winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"),
+                ]
+                for label, hive, key_path in locations:
+                    try:
+                        with winreg.OpenKey(hive, key_path) as key:
+                            index = 0
+                            while True:
+                                try:
+                                    name, value, _kind = winreg.EnumValue(key, index)
+                                    tree.insert("", "end", values=(label, str(name), str(value)))
+                                    count += 1
+                                    index += 1
+                                except OSError:
+                                    break
+                    except OSError:
+                        pass
+            except Exception as exc:
+                errors.append(str(exc))
+            startup_dirs = [
+                ("Current user Startup", os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")),
+                ("All users Startup", os.path.join(os.environ.get("PROGRAMDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")),
+            ]
+            for label, path in startup_dirs:
+                if not path or not os.path.isdir(path):
+                    continue
+                try:
+                    for name in os.listdir(path):
+                        tree.insert("", "end", values=(label, name, os.path.join(path, name)))
+                        count += 1
+                except OSError as exc:
+                    errors.append(str(exc))
+            status.set(f"Found {count} common startup entry/entries. Some apps use other startup mechanisms not shown here." + ((" Notes: " + "; ".join(errors)) if errors else ""))
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "↻ Refresh startup list", scan, primary=True).pack(side="left")
+        self.button(actions, "Open Windows Startup Settings", lambda: self.open_uri("ms-settings:startupapps")).pack(side="right")
+        scan()
+
+    def create_battery_report(self):
+        """Ask Windows to create a battery report and open it for inspection."""
+        if os.name != "nt":
+            messagebox.showinfo("Windows only", "Battery reports require Windows powercfg.")
+            return
+        try:
+            folder = os.path.join(os.path.expanduser("~"), "Documents")
+            os.makedirs(folder, exist_ok=True)
+            report_path = os.path.join(folder, "Panda-PC-Battery-Report.html")
+            result = subprocess.run(
+                ["powercfg.exe", "/batteryreport", "/output", report_path],
+                capture_output=True, text=True, timeout=30,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if result.returncode != 0 or not os.path.isfile(report_path):
+                detail = (result.stderr or result.stdout or "Windows could not generate a battery report. Desktop PCs or systems without a supported battery may not provide one.").strip()
+                messagebox.showwarning("Battery report unavailable", detail[:900])
+                return
+            messagebox.showinfo("Battery report created", f"Saved a Windows battery report to:\n{report_path}\n\nIt may include battery capacity and usage history. The report stays on this PC.")
+            self.open_uri(report_path)
+        except Exception as exc:
+            messagebox.showerror("Battery report failed", str(exc)[:900])
 
     def show_power_plans(self):
         """Inspect Windows power plans and let the user explicitly switch plans."""
