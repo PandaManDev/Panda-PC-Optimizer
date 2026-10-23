@@ -7,7 +7,7 @@ import subprocess
 import platform
 import socket
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 
 try:
     import psutil
@@ -113,6 +113,8 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "🖥   Hardware report", False, lambda: self.show_hardware_report())
         self.nav_button(sidebar, "🌐   Internet diagnostics", False, lambda: self.show_internet_diagnostics())
         self.nav_button(sidebar, "✓   Optimization check", False, lambda: self.show_optimization_check())
+        self.nav_button(sidebar, "🛠   Windows maintenance", False, lambda: self.show_windows_maintenance())
+        self.nav_button(sidebar, "🔎   Process inspector", False, lambda: self.show_process_inspector())
         self.nav_button(sidebar, "⚡   Power plans", False, lambda: self.show_power_plans())
         self.nav_button(sidebar, "🧹   Safe cleanup", False, lambda: self.show_safe_cleanup())
         self.nav_button(sidebar, "🚀   Startup apps", False, lambda: self.show_startup_apps())
@@ -1225,6 +1227,99 @@ class PandaOptimizer(tk.Tk):
         self.button(actions, "↻ Run checks again", run_check, primary=True).pack(side="left")
         self.button(actions, "Open Task Manager", lambda: subprocess.Popen(["taskmgr.exe"]), compact=True).pack(side="right")
         run_check()
+
+
+    def show_windows_maintenance(self):
+        """Open built-in Windows maintenance tools; no commands run automatically."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Windows Maintenance")
+        win.geometry("700x590")
+        win.minsize(570, 460)
+        win.configure(bg=BG)
+        self.label(win, "Windows maintenance toolbox", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Shortcuts to built-in Windows repair and troubleshooting tools. Nothing runs until you choose it.", 9, MUTED, bg=BG, wraplength=640).pack(anchor="w", padx=22, pady=(0, 16))
+        area = tk.Frame(win, bg=BG)
+        area.pack(fill="both", expand=True, padx=22)
+        tools = [
+            ("Windows Update", "Open Windows Update to check for OS and driver updates.", lambda: self.open_uri("ms-settings:windowsupdate")),
+            ("Storage settings", "Review temporary files and storage categories using Windows.", lambda: self.open_uri("ms-settings:storagesense")),
+            ("Security settings", "Open Windows Security to review protection status.", lambda: self.open_uri("windowsdefender:")),
+            ("Network troubleshooter", "Open network settings to diagnose connectivity.", lambda: self.open_uri("ms-settings:network-status")),
+            ("Reliability Monitor", "Review application crashes and system reliability history.", lambda: subprocess.Popen(["perfmon.exe", "/rel"])),
+            ("Resource Monitor", "Inspect CPU, memory, disk, and network activity in detail.", lambda: subprocess.Popen(["resmon.exe"])),
+            ("System Information", "Open detailed Windows and hardware information.", lambda: subprocess.Popen(["msinfo32.exe"])),
+            ("Task Manager", "Inspect running applications and startup impact.", lambda: subprocess.Popen(["taskmgr.exe"])),
+        ]
+        for title, desc, action in tools:
+            card = self.panel(area, padx=12, pady=9)
+            card.pack(fill="x", pady=(0, 7))
+            row = tk.Frame(card, bg=PANEL)
+            row.pack(fill="x")
+            details = tk.Frame(row, bg=PANEL)
+            details.pack(side="left", fill="x", expand=True)
+            self.label(details, title, 10, FG, True).pack(anchor="w")
+            self.label(details, desc, 8, MUTED, wraplength=420, justify="left").pack(anchor="w", pady=(2, 0))
+            self.button(row, "Open", action, compact=True).pack(side="right", padx=(8, 0))
+        note = self.panel(win, padx=13, pady=10)
+        note.pack(fill="x", padx=22, pady=(10, 18))
+        self.label(note, "Repair commands", 9, ORANGE, True).pack(anchor="w")
+        self.label(note, "For SFC or DISM repairs, use an Administrator Terminal and follow Microsoft guidance. These commands are not launched here to avoid unexpected elevated changes.", 8, MUTED, wraplength=620, justify="left").pack(anchor="w", pady=(4, 0))
+
+    def show_process_inspector(self):
+        """Inspect a selected process without changing or terminating it."""
+        if psutil is None:
+            messagebox.showerror("Dependency missing", "Process inspection requires psutil.")
+            return
+        pid = None
+        try:
+            if hasattr(self, "tree") and self.tree.selection():
+                values = self.tree.item(self.tree.selection()[0], "values")
+                if values:
+                    pid = int(values[3])
+        except Exception:
+            pid = None
+        if pid is None:
+            pid = simpledialog.askinteger("Process inspector", "Enter a process ID (PID):", parent=self, minvalue=1)
+            if pid is None:
+                return
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Process Inspector")
+        win.geometry("680x530")
+        win.minsize(540, 420)
+        win.configure(bg=BG)
+        self.label(win, f"Process inspector — PID {pid}", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Read-only process details. Protected or exited processes may hide some information.", 9, MUTED, bg=BG).pack(anchor="w", padx=22, pady=(0, 14))
+        box = tk.Text(win, bg=PANEL, fg=FG, relief="flat", font=("Consolas", 10), wrap="word", padx=14, pady=12)
+        box.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        try:
+            proc = psutil.Process(pid)
+            with proc.oneshot():
+                name = proc.name()
+                details = [
+                    f"Name: {name}",
+                    f"PID: {proc.pid}",
+                    f"Status: {proc.status()}",
+                    f"Executable: {proc.exe() if proc.exe() else 'Access denied or unavailable'}",
+                    f"Command line: {' '.join(proc.cmdline()) if proc.cmdline() else 'Unavailable'}",
+                    f"Parent PID: {proc.ppid()}",
+                    f"Parent name: {proc.parent().name() if proc.parent() else 'Unavailable'}",
+                    f"Threads: {proc.num_threads()}",
+                    f"CPU time: {sum(proc.cpu_times()[:2]):.2f} seconds",
+                    f"Memory: {proc.memory_info().rss / (1024 ** 2):.1f} MB resident",
+                    f"Created: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(proc.create_time()))}",
+                ]
+            box.insert("1.0", "\n".join(details))
+        except psutil.NoSuchProcess:
+            box.insert("1.0", "That process has already exited.")
+        except psutil.AccessDenied:
+            box.insert("1.0", "Windows denied access to this process. This is normal for protected system processes.")
+        except Exception as exc:
+            box.insert("1.0", f"Could not inspect process: {exc}")
+        box.configure(state="disabled")
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "Refresh process list", self.refresh, primary=True).pack(side="left")
+        self.button(actions, "Close", win.destroy, compact=True).pack(side="right")
 
     def show_network_monitor(self):
         """Show lightweight live system-wide network throughput without background polling."""
