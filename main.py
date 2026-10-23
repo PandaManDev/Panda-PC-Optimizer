@@ -1,7 +1,7 @@
 import os
 import subprocess
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 try:
     import psutil
@@ -37,6 +37,8 @@ class PandaOptimizer(tk.Tk):
         self._after_id = None
         self.history = {"cpu": [], "ram": [], "disk": []}
         self.history_window = None
+        self.sort_key = "cpu"
+        self.sort_reverse = True
 
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -161,7 +163,7 @@ class PandaOptimizer(tk.Tk):
             ("name", "PROCESS", 230), ("cpu", "CPU %", 70),
             ("ram", "MEMORY MB", 95), ("pid", "PID", 65)
         ]:
-            self.tree.heading(col, text=title)
+            self.tree.heading(col, text=title, command=lambda column=col: self.sort_processes(column))
             self.tree.column(col, width=width, anchor="w" if col == "name" else "center",
                              stretch=(col == "name"))
         scroll = ttk.Scrollbar(table_wrap, orient="vertical", command=self.tree.yview)
@@ -204,6 +206,8 @@ class PandaOptimizer(tk.Tk):
             ("Task Manager", lambda: subprocess.Popen(["taskmgr.exe"])),
             ("Startup apps", lambda: self.open_uri("ms-settings:startupapps")),
             ("Power settings", lambda: self.open_uri("ms-settings:powersleep")),
+            ("Storage settings", lambda: self.open_uri("ms-settings:storagesense")),
+            ("Export system report", self.export_report),
         ]:
             self.button(tools, title + "  ↗", cmd, compact=True).pack(fill="x", pady=3)
 
@@ -283,6 +287,54 @@ class PandaOptimizer(tk.Tk):
         except Exception:
             self.status_pill.config(text="● CHECK SYSTEM", bg="#30241a", fg=ORANGE)
 
+    def sort_processes(self, column):
+        if column == self.sort_key:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_key = column
+            self.sort_reverse = column in ("cpu", "ram")
+        self.render_processes()
+
+    def export_report(self):
+        if psutil is None:
+            return
+        path = filedialog.asksaveasfilename(
+            title="Save Panda system report",
+            defaultextension=".txt",
+            filetypes=[("Text report", "*.txt")],
+            initialfile="Panda-PC-System-Report.txt")
+        if not path:
+            return
+        try:
+            vm = psutil.virtual_memory()
+            disk_path = os.environ.get("SystemDrive", "C:") + "\\"
+            disk = psutil.disk_usage(disk_path)
+            cpu_name = os.environ.get("PROCESSOR_IDENTIFIER", "Not reported by Windows")
+            lines = [
+                "PANDA PC OPTIMIZER — SYSTEM REPORT",
+                "=" * 42,
+                f"Generated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"Windows processor: {cpu_name}",
+                f"Physical cores: {psutil.cpu_count(logical=False)}",
+                f"Logical processors: {psutil.cpu_count(logical=True)}",
+                f"CPU usage: {psutil.cpu_percent(interval=0.2):.1f}%",
+                f"RAM total: {vm.total / (1024**3):.2f} GB",
+                f"RAM available: {vm.available / (1024**3):.2f} GB",
+                f"RAM usage: {vm.percent:.1f}%",
+                f"System drive usage: {disk.percent:.1f}%",
+                f"System drive free: {disk.free / (1024**3):.2f} GB",
+                "",
+                "TOP PROCESSES (current session sample)",
+                "-" * 42,
+            ]
+            for cpu, name, ram, pid in sorted(self._rows, reverse=True)[:25]:
+                lines.append(f"{name} | PID {pid} | CPU {cpu:.1f}% | RAM {ram:.0f} MB")
+            with open(path, "w", encoding="utf-8") as report:
+                report.write("\n".join(lines) + "\n")
+            messagebox.showinfo("Report saved", f"Your system report was saved to:\n{path}")
+        except Exception as exc:
+            messagebox.showerror("Export failed", f"Could not save the report.\n{exc}")
+
     def render_processes(self):
         if not hasattr(self, "tree"):
             return
@@ -290,7 +342,16 @@ class PandaOptimizer(tk.Tk):
         selected = self.tree.selection()
         old_pid = self.tree.set(selected[0], "pid") if selected else None
         self.tree.delete(*self.tree.get_children())
-        for cpu, name, ram, pid in self._rows:
+        rows = list(self._rows)
+        if self.sort_key == "name":
+            rows.sort(key=lambda row: row[1].lower(), reverse=self.sort_reverse)
+        elif self.sort_key == "ram":
+            rows.sort(key=lambda row: row[2], reverse=self.sort_reverse)
+        elif self.sort_key == "pid":
+            rows.sort(key=lambda row: row[3], reverse=self.sort_reverse)
+        else:
+            rows.sort(key=lambda row: row[0], reverse=self.sort_reverse)
+        for cpu, name, ram, pid in rows:
             if query and query not in name.lower() and query not in str(pid):
                 continue
             iid = self.tree.insert("", "end", values=(name, f"{cpu:.1f}", f"{ram:.0f}", pid))
