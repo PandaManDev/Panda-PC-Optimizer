@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import threading
+import urllib.request
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -39,6 +41,7 @@ class PandaOptimizer(tk.Tk):
         self._after_id = None
         self.history = {"cpu": [], "ram": [], "disk": []}
         self.history_window = None
+        self.updater_settings = self.load_updater_settings()
         self.sort_key = "cpu"
         self.sort_reverse = True
 
@@ -57,6 +60,8 @@ class PandaOptimizer(tk.Tk):
         self.build()
         self.refresh()
         self.schedule_tick()
+        if self.updater_settings.get("auto_check", False):
+            self.after(1200, lambda: self.check_for_updates(show_up_to_date=False))
 
     def label(self, parent, text, size=10, color=FG, bold=False, **kwargs):
         return tk.Label(parent, text=text, bg=kwargs.pop("bg", parent.cget("bg")),
@@ -105,6 +110,7 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "♡   Performance tips", False, lambda: self.show_tips())
         self.nav_button(sidebar, "▥   Performance history", False, lambda: self.show_history())
         self.nav_button(sidebar, "ⓘ   System report", False, lambda: self.show_report())
+        self.nav_button(sidebar, "⟳   App updater", False, lambda: self.show_updater_settings())
 
         spacer = tk.Frame(sidebar, bg=SIDEBAR)
         spacer.pack(fill="both", expand=True)
@@ -643,6 +649,137 @@ class PandaOptimizer(tk.Tk):
 
         win.protocol("WM_DELETE_WINDOW", close_window)
         tick()
+
+    def load_updater_settings(self):
+        """Load simple per-user updater preferences, falling back safely on defaults."""
+        defaults = {"auto_check": False}
+        try:
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+            folder = os.path.join(base, "PandaPCOptimizer")
+            os.makedirs(folder, exist_ok=True)
+            self.updater_settings_path = os.path.join(folder, "settings.json")
+            with open(self.updater_settings_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            if isinstance(saved, dict):
+                defaults.update({key: value for key, value in saved.items() if key in defaults})
+        except FileNotFoundError:
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+            folder = os.path.join(base, "PandaPCOptimizer")
+            try:
+                os.makedirs(folder, exist_ok=True)
+            except OSError:
+                pass
+            self.updater_settings_path = os.path.join(folder, "settings.json")
+        except Exception:
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+            self.updater_settings_path = os.path.join(base, "PandaPCOptimizer", "settings.json")
+        return defaults
+
+    def save_updater_settings(self):
+        try:
+            folder = os.path.dirname(self.updater_settings_path)
+            os.makedirs(folder, exist_ok=True)
+            with open(self.updater_settings_path, "w", encoding="utf-8") as handle:
+                json.dump(self.updater_settings, handle, indent=2)
+        except Exception as exc:
+            messagebox.showerror("Settings not saved", f"Could not save updater preferences.\\n{exc}")
+
+    def show_updater_settings(self):
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — App Updater")
+        win.geometry("590x430")
+        win.minsize(520, 390)
+        win.configure(bg=BG)
+        self.label(win, "App updater", 22, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Check GitHub Releases for the newest Windows build.", 10, MUTED, bg=BG).pack(anchor="w", padx=22, pady=(0, 18))
+
+        panel = self.panel(win, padx=16, pady=16)
+        panel.pack(fill="x", padx=22)
+        self.label(panel, "UPDATE PREFERENCES", 9, PURPLE, True).pack(anchor="w", pady=(0, 8))
+        auto_var = tk.BooleanVar(value=bool(self.updater_settings.get("auto_check", False)))
+
+        def save_auto():
+            self.updater_settings["auto_check"] = bool(auto_var.get())
+            self.save_updater_settings()
+
+        tk.Checkbutton(
+            panel, text="Check for updates when Panda PC Optimizer opens",
+            variable=auto_var, command=save_auto, bg=PANEL, fg=FG,
+            selectcolor=PANEL_HI, activebackground=PANEL, activeforeground=FG,
+            font=("Segoe UI", 9), wraplength=450, justify="left"
+        ).pack(anchor="w", pady=(2, 6))
+        self.label(panel, "This preference is saved locally on this Windows account.", 8, MUTED).pack(anchor="w")
+
+        status = tk.StringVar(value="Ready to check for updates.")
+        status_panel = self.panel(win, padx=16, pady=14)
+        status_panel.pack(fill="both", expand=True, padx=22, pady=14)
+        self.label(status_panel, "UPDATE STATUS", 9, PURPLE, True).pack(anchor="w", pady=(0, 8))
+        tk.Label(status_panel, textvariable=status, bg=PANEL, fg=FG,
+                 font=("Segoe UI", 10), justify="left", wraplength=470,
+                 anchor="w").pack(fill="x")
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        check_button = self.button(actions, "Check for updates", lambda: self.check_for_updates(status, check_button), primary=True)
+        check_button.pack(side="left")
+        self.button(actions, "Open releases page", lambda: self.open_uri("https://github.com/PandaManDev/Panda-PC-Optimizer/releases")).pack(side="right")
+
+    def check_for_updates(self, status_var=None, button=None, show_up_to_date=True):
+        """Fetch latest release metadata in a worker thread; never auto-download or replace the EXE."""
+        if status_var is not None:
+            status_var.set("Checking GitHub Releases…")
+        if button is not None:
+            button.config(state="disabled")
+
+        def worker():
+            url = "https://api.github.com/repos/PandaManDev/Panda-PC-Optimizer/releases/latest"
+            request = urllib.request.Request(
+                url, headers={"Accept": "application/vnd.github+json", "User-Agent": "Panda-PC-Optimizer-Updater"}
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=8) as response:
+                    release = json.loads(response.read().decode("utf-8"))
+                if release.get("draft") or release.get("prerelease"):
+                    raise ValueError("The latest release is not a stable public release.")
+                tag = str(release.get("tag_name") or "Unknown version")
+                release_url = str(release.get("html_url") or "https://github.com/PandaManDev/Panda-PC-Optimizer/releases")
+                assets = release.get("assets") or []
+                exe_asset = next((item for item in assets if str(item.get("name", "")).lower().endswith(".exe")), None)
+                download_url = str(exe_asset.get("browser_download_url")) if exe_asset else release_url
+                result = {"ok": True, "tag": tag, "url": release_url, "download": download_url}
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)}
+
+            def finish():
+                if button is not None and button.winfo_exists():
+                    button.config(state="normal")
+                if status_var is not None:
+                    if result["ok"]:
+                        status_var.set(f"Latest release found: {result['tag']}\\nOpen the release page to review its notes and download the EXE.\\nNo files have been installed or changed.")
+                    else:
+                        status_var.set(f"Could not check for updates.\\n{result['error']}\\nCheck your internet connection or open the releases page.")
+                if result["ok"]:
+                    if status_var is None and show_up_to_date:
+                        messagebox.showinfo("Update check complete", f"Latest published version: {result['tag']}\\nOpen the Releases page to review the update and download the EXE.")
+                    if status_var is None and not show_up_to_date:
+                        # Quiet automatic checks only notify if a newer release is available than the locally recorded last-seen tag.
+                        last_seen = self.updater_settings.get("last_seen_release")
+                        if last_seen != result["tag"]:
+                            self.updater_settings["last_seen_release"] = result["tag"]
+                            self.save_updater_settings()
+                            self.after(0, lambda: messagebox.showinfo(
+                                "Panda PC Optimizer update check",
+                                f"Latest published release: {result['tag']}\\nOpen GitHub Releases to review and download it.",
+                            ))
+                elif status_var is None and show_up_to_date:
+                    messagebox.showwarning("Update check failed", result["error"])
+
+            try:
+                self.after(0, finish)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def show_tips(self):
         messagebox.showinfo("Performance tips",
