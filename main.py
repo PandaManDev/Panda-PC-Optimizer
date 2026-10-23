@@ -1,4 +1,5 @@
 import os
+import base64
 import json
 import time
 import threading
@@ -29,6 +30,8 @@ ORANGE = "#ffbd69"
 RED = "#ff7185"
 BORDER = "#29283a"
 
+PANDA_LOGO_PNG_B64 = """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"""
+
 
 class PandaOptimizer(tk.Tk):
     def __init__(self):
@@ -37,6 +40,11 @@ class PandaOptimizer(tk.Tk):
         self.geometry("1180x760")
         self.minsize(940, 650)
         self.configure(bg=BG)
+        try:
+            self.app_logo = tk.PhotoImage(data=PANDA_LOGO_PNG_B64)
+            self.iconphoto(True, self.app_logo)
+        except tk.TclError:
+            self.app_logo = None
         self.mode = tk.BooleanVar(value=False)
         self.search = tk.StringVar()
         self.status = tk.StringVar(value="Starting system monitor…")
@@ -97,8 +105,12 @@ class PandaOptimizer(tk.Tk):
 
         brand = tk.Frame(sidebar, bg=SIDEBAR)
         brand.pack(fill="x", padx=19, pady=(23, 26))
-        mark = tk.Label(brand, text="🐼", bg=PURPLE_DARK, fg=FG,
-                        font=("Segoe UI Emoji", 20), width=2, height=1)
+        if self.app_logo is not None:
+            self.sidebar_logo = self.app_logo.subsample(2, 2)
+            mark = tk.Label(brand, image=self.sidebar_logo, bg=SIDEBAR, bd=0)
+        else:
+            mark = tk.Label(brand, text="🐼", bg=PURPLE_DARK, fg=FG,
+                            font=("Segoe UI Emoji", 20), width=2, height=1)
         mark.pack(side="left", padx=(0, 10))
         brand_text = tk.Frame(brand, bg=SIDEBAR)
         brand_text.pack(side="left")
