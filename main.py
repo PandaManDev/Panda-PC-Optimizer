@@ -652,7 +652,7 @@ class PandaOptimizer(tk.Tk):
 
     def load_updater_settings(self):
         """Load simple per-user updater preferences, falling back safely on defaults."""
-        defaults = {"auto_check": False}
+        defaults = {"auto_check": False, "last_seen_release": None}
         try:
             base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
             folder = os.path.join(base, "PandaPCOptimizer")
