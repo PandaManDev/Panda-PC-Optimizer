@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -97,6 +98,7 @@ class PandaOptimizer(tk.Tk):
         self.label(sidebar, "WORKSPACE", 8, MUTED, True).pack(anchor="w", padx=20, pady=(0, 9))
         self.nav_button(sidebar, "◈   Overview", True)
         self.nav_button(sidebar, "▤   Processes", False, lambda: self.focus_processes())
+        self.nav_button(sidebar, "⚙   Background services", False, lambda: self.show_services())
         self.nav_button(sidebar, "⚙   Windows tools", False, lambda: self.open_uri("ms-settings:"))
         self.nav_button(sidebar, "♡   Performance tips", False, lambda: self.show_tips())
         self.nav_button(sidebar, "▥   Performance history", False, lambda: self.show_history())
@@ -466,6 +468,94 @@ class PandaOptimizer(tk.Tk):
                            font=("Segoe UI", 8))
         canvas.create_text(right, height - 10, text="Latest", fill=MUTED, anchor="e",
                            font=("Segoe UI", 8))
+
+
+    def show_services(self):
+        if os.name != "nt":
+            messagebox.showinfo("Windows only", "The Background Services Manager is available on Windows.")
+            return
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Background Services")
+        win.geometry("1000x620")
+        win.minsize(760, 480)
+        win.configure(bg=BG)
+        self.label(win, "Background Services Manager", 20, FG, True).pack(anchor="w", padx=20, pady=(18, 4))
+        self.label(win, "View Windows services. Start/stop is limited to an explicit allowlist of optional services; startup settings are never changed.", 9, MUTED, wraplength=900, justify="left").pack(anchor="w", padx=20, pady=(0, 12))
+        self.label(win, "Warning: stopping a service can disable its related feature until it is started again. Run as administrator only if Windows requires it.", 9, ORANGE, wraplength=900, justify="left").pack(anchor="w", padx=20, pady=(0, 12))
+        wrap = tk.Frame(win, bg=PANEL)
+        wrap.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+        tree = ttk.Treeview(wrap, columns=("display", "name", "state", "start"), show="headings", selectmode="browse")
+        for col, title, width in [("display", "SERVICE", 280), ("name", "SERVICE NAME", 170), ("state", "STATUS", 100), ("start", "STARTUP", 100)]:
+            tree.heading(col, text=title)
+            tree.column(col, width=width, anchor="w")
+        scroll = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        info = tk.StringVar(value="Loading services…")
+        tk.Label(win, textvariable=info, bg=BG, fg=MUTED, font=("Segoe UI", 9), anchor="w").pack(fill="x", padx=20, pady=(0, 8))
+        buttons = tk.Frame(win, bg=BG)
+        buttons.pack(fill="x", padx=20, pady=(0, 18))
+        service_data = {}
+        allowed = {"Spooler", "WSearch", "SysMain", "WerSvc", "Fax", "RetailDemo", "MapsBroker", "DiagTrack", "PhoneSvc", "lfsvc"}
+        def load_services():
+            try:
+                result = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                     "Get-CimInstance Win32_Service | Select-Object Name,DisplayName,State,StartMode | ConvertTo-Json -Compress"],
+                    capture_output=True, text=True, timeout=25, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                if result.returncode != 0:
+                    raise RuntimeError((result.stderr or "PowerShell could not query services.").strip())
+                data = json.loads(result.stdout or "[]")
+                if isinstance(data, dict):
+                    data = [data]
+                service_data.clear()
+                tree.delete(*tree.get_children())
+                for item in sorted(data, key=lambda x: str(x.get("DisplayName") or x.get("Name") or "").lower()):
+                    name = str(item.get("Name") or "")
+                    display = str(item.get("DisplayName") or name)
+                    iid = tree.insert("", "end", values=(display, name, str(item.get("State") or "Unknown"), str(item.get("StartMode") or "Unknown")))
+                    service_data[iid] = item
+                info.set(f"{len(data)} services found. Controls are enabled only for approved optional services.")
+            except Exception as exc:
+                info.set("Could not load services. " + str(exc)[:220])
+        def act(action):
+            sel = tree.selection()
+            item = service_data.get(sel[0]) if sel else None
+            if not item:
+                messagebox.showinfo("Select a service", "Select a service from the list first.", parent=win)
+                return
+            name = str(item.get("Name") or "")
+            display = str(item.get("DisplayName") or name)
+            state = str(item.get("State") or "")
+            if name not in allowed:
+                messagebox.showwarning("Controls restricted", f"{display} is view-only. Only a small allowlist of optional services can be controlled here.", parent=win)
+                return
+            if action == "stop" and state.lower() != "running":
+                messagebox.showinfo("Already stopped", f"{display} is not running.", parent=win)
+                return
+            if action == "start" and state.lower() == "running":
+                messagebox.showinfo("Already running", f"{display} is already running.", parent=win)
+                return
+            verb = "stop" if action == "stop" else "start"
+            warning = f"{verb.title()} {display} ({name})?\\n\\nStopping it may disable its related feature. Startup settings will not be changed."
+            if not messagebox.askyesno(f"Confirm {verb} service", warning, icon="warning", parent=win):
+                return
+            try:
+                result = subprocess.run(["sc.exe", verb, name], capture_output=True, text=True, timeout=20,
+                                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                if result.returncode != 0:
+                    detail = (result.stdout + "\\n" + result.stderr).strip()
+                    messagebox.showerror("Service action failed", (detail or "Windows denied the request. You may need to run the app as administrator.")[:900], parent=win)
+                else:
+                    messagebox.showinfo("Service command sent", f"Windows accepted the request to {verb} {display}. Refreshing status.", parent=win)
+                load_services()
+            except Exception as exc:
+                messagebox.showerror("Service action failed", str(exc), parent=win)
+        self.button(buttons, "↻  Refresh", load_services, compact=True).pack(side="left")
+        self.button(buttons, "▶  Start selected", lambda: act("start"), primary=True, compact=True).pack(side="right", padx=(8, 0))
+        self.button(buttons, "■  Stop selected", lambda: act("stop"), compact=True).pack(side="right")
+        load_services()
 
     def show_tips(self):
         messagebox.showinfo("Performance tips",
