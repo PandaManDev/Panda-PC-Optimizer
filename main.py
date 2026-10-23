@@ -106,6 +106,7 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "▤   Processes", False, lambda: self.focus_processes())
         self.nav_button(sidebar, "⚙   Background services", False, lambda: self.show_services())
         self.nav_button(sidebar, "⇅   Network monitor", False, lambda: self.show_network_monitor())
+        self.nav_button(sidebar, "⚡   Power plans", False, lambda: self.show_power_plans())
         self.nav_button(sidebar, "⚙   Windows tools", False, lambda: self.open_uri("ms-settings:"))
         self.nav_button(sidebar, "♡   Performance tips", False, lambda: self.show_tips())
         self.nav_button(sidebar, "▥   Performance history", False, lambda: self.show_history())
@@ -566,6 +567,96 @@ class PandaOptimizer(tk.Tk):
         self.button(buttons, "▶  Start selected", lambda: act("start"), primary=True, compact=True).pack(side="right", padx=(8, 0))
         self.button(buttons, "■  Stop selected", lambda: act("stop"), compact=True).pack(side="right")
         load_services()
+
+    def show_power_plans(self):
+        """Inspect Windows power plans and let the user explicitly switch plans."""
+        if os.name != "nt":
+            messagebox.showinfo("Windows only", "Power plan controls are available on Windows.")
+            return
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Power Plans")
+        win.geometry("680x460")
+        win.minsize(560, 380)
+        win.configure(bg=BG)
+
+        self.label(win, "Windows power plans", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Choose a power profile for your laptop or desktop. Balanced is a good everyday default; Power saver can reduce performance and power use.", 9, MUTED, bg=BG, wraplength=620, justify="left").pack(anchor="w", padx=22, pady=(0, 18))
+
+        panel = self.panel(win, padx=18, pady=18)
+        panel.pack(fill="x", padx=22, pady=(0, 14))
+        self.label(panel, "AVAILABLE PLANS", 8, PURPLE, True).pack(anchor="w", pady=(0, 10))
+        selected = tk.StringVar(value="")
+        combo = ttk.Combobox(panel, textvariable=selected, state="readonly", font=("Segoe UI", 10))
+        combo.pack(fill="x", ipady=5)
+        current_var = tk.StringVar(value="Checking the active power plan…")
+        tk.Label(panel, textvariable=current_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w", justify="left", wraplength=590).pack(fill="x", pady=(12, 0))
+        info_var = tk.StringVar(value="Loading power plans…")
+        tk.Label(win, textvariable=info_var, bg=BG, fg=MUTED, font=("Segoe UI", 9), anchor="w", justify="left", wraplength=620).pack(fill="x", padx=22, pady=(0, 12))
+
+        plans = {}
+
+        def load_plans():
+            try:
+                result = subprocess.run(
+                    ["powercfg.exe", "/list"], capture_output=True, text=True, timeout=12,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                if result.returncode != 0:
+                    raise RuntimeError((result.stderr or "powercfg could not list power plans.").strip())
+                found = {}
+                active_name = None
+                import re
+                for line in result.stdout.splitlines():
+                    match = re.search(r"([0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})\s+\((.*?)\)", line)
+                    if not match:
+                        continue
+                    guid, name = match.group(1), match.group(2).strip()
+                    found[name] = guid
+                    if "*" in line[match.end():]:
+                        active_name = name
+                plans.clear()
+                plans.update(found)
+                names = list(found.keys())
+                combo["values"] = names
+                if active_name:
+                    current_var.set("Currently active: " + active_name)
+                else:
+                    current_var.set("Active plan could not be identified from Windows output.")
+                if names:
+                    selected.set(active_name if active_name in found else names[0])
+                    info_var.set(f"{len(names)} power plan(s) found. Changes apply only after you confirm.")
+                else:
+                    selected.set("")
+                    info_var.set("No plans were detected. Your PC or Windows configuration may not expose standard power plans.")
+            except Exception as exc:
+                info_var.set("Could not read power plans: " + str(exc)[:250])
+
+        def activate():
+            name = selected.get()
+            guid = plans.get(name)
+            if not guid:
+                messagebox.showinfo("Choose a plan", "Select an available power plan first.", parent=win)
+                return
+            if not messagebox.askyesno("Confirm power plan", f"Switch Windows to '{name}'?\n\nThis changes the active Windows power plan. Performance and battery life may change. You can return to your previous plan here.", parent=win):
+                return
+            try:
+                result = subprocess.run(
+                    ["powercfg.exe", "/setactive", guid], capture_output=True, text=True, timeout=12,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout or "Windows could not activate this plan.").strip()
+                    messagebox.showerror("Could not switch plan", detail[:700], parent=win)
+                else:
+                    messagebox.showinfo("Power plan changed", f"Windows accepted '{name}' as the active power plan.", parent=win)
+                load_plans()
+            except Exception as exc:
+                messagebox.showerror("Power plan failed", str(exc), parent=win)
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "↻ Refresh plans", load_plans, compact=True).pack(side="left")
+        self.button(actions, "Apply selected plan", activate, primary=True).pack(side="right")
+        self.label(win, "Tip: Power saver may reduce game performance. Avoid third-party 'ultimate boost' tweaks; this tool only uses Windows powercfg.", 8, ORANGE, bg=BG, wraplength=620, justify="left").pack(anchor="w", padx=22, pady=(0, 16))
+        load_plans()
 
     def show_network_monitor(self):
         """Show lightweight live system-wide network throughput without background polling."""
