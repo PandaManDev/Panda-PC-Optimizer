@@ -1,4 +1,4 @@
-name: Build Panda PC Optimizer EXE
+name: Build and Release Panda PC Optimizer EXE
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows-exe:
@@ -24,10 +24,23 @@ jobs:
           pip install -r requirements.txt pyinstaller
       - name: Build executable
         run: pyinstaller --noconfirm --clean --onefile --windowed --name "Panda PC Optimizer" main.py
-      - name: Upload EXE
+      - name: Upload EXE as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: Panda-PC-Optimizer-Windows-EXE
           path: dist/Panda PC Optimizer.exe
           if-no-files-found: error
           retention-days: 30
+      - name: Publish GitHub Release with EXE
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: Panda PC Optimizer v0.1.${{ github.run_number }}
+          body: |
+            Automated Windows executable build of Panda PC Optimizer.
+
+            Download **Panda PC Optimizer.exe** below, save it to your Windows PC, and double-click to run.
+            Windows SmartScreen may show a warning because this app is not code-signed.
+          files: dist/Panda PC Optimizer.exe
+          fail_on_unmatched_files: true
+          generate_release_notes: true
