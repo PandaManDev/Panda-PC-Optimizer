@@ -21,9 +21,26 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt pyinstaller pillow
+      - name: Prepare Panda app icon
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          import base64
+          import io
+          from PIL import Image
+          tree = ast.parse(open("main.py", encoding="utf-8").read())
+          value = next(node.value for node in tree.body
+                       if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == "PANDA_LOGO_PNG_B64"
+                               for target in node.targets))
+          png = base64.b64decode(ast.literal_eval(value))
+          image = Image.open(io.BytesIO(png)).convert("RGBA")
+          image.save("panda_logo.ico", format="ICO", sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128)])
+          PY
       - name: Build executable
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name "Panda PC Optimizer" main.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --icon=panda_logo.ico --name "Panda PC Optimizer" main.py
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
       - name: Build Windows installer
