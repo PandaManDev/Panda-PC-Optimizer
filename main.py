@@ -6,6 +6,8 @@ import urllib.request
 import subprocess
 import platform
 import socket
+import csv
+import winreg
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 
@@ -115,6 +117,8 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "✓   Optimization check", False, lambda: self.show_optimization_check())
         self.nav_button(sidebar, "🛠   Windows maintenance", False, lambda: self.show_windows_maintenance())
         self.nav_button(sidebar, "🔎   Process inspector", False, lambda: self.show_process_inspector())
+        self.nav_button(sidebar, "📦   Installed apps", False, lambda: self.show_installed_apps())
+        self.nav_button(sidebar, "🩺   Diagnostics center", False, lambda: self.show_diagnostics_center())
         self.nav_button(sidebar, "⚡   Power plans", False, lambda: self.show_power_plans())
         self.nav_button(sidebar, "🧹   Safe cleanup", False, lambda: self.show_safe_cleanup())
         self.nav_button(sidebar, "🚀   Startup apps", False, lambda: self.show_startup_apps())
@@ -1320,6 +1324,161 @@ class PandaOptimizer(tk.Tk):
         actions.pack(fill="x", padx=22, pady=(0, 18))
         self.button(actions, "Refresh process list", self.refresh, primary=True).pack(side="left")
         self.button(actions, "Close", win.destroy, compact=True).pack(side="right")
+
+    def show_installed_apps(self):
+        """Read-only inventory of installed applications from Windows uninstall registry keys."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Installed Apps")
+        win.geometry("900x590")
+        win.minsize(680, 420)
+        win.configure(bg=BG)
+        self.label(win, "Installed apps inventory", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Read-only registry inventory. Nothing is uninstalled or changed by this screen.", 9, MUTED, bg=BG).pack(anchor="w", padx=22, pady=(0, 12))
+        bar = tk.Frame(win, bg=BG)
+        bar.pack(fill="x", padx=22, pady=(0, 10))
+        search_var = tk.StringVar()
+        search = tk.Entry(bar, textvariable=search_var, bg=PANEL, fg=FG, insertbackground=FG, relief="flat", font=("Segoe UI", 10))
+        search.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 8))
+        search.insert(0, "")
+        count = self.label(bar, "Loading…", 9, MUTED, bg=BG)
+        count.pack(side="right")
+        table_frame = tk.Frame(win, bg=BG)
+        table_frame.pack(fill="both", expand=True, padx=22)
+        columns = ("name", "version", "publisher", "date")
+        tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
+        for col, title, width in [("name", "APPLICATION", 300), ("version", "VERSION", 120), ("publisher", "PUBLISHER", 220), ("date", "INSTALL DATE", 110)]:
+            tree.heading(col, text=title)
+            tree.column(col, width=width, anchor="w")
+        scroll = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        status = self.label(win, "Reading standard Windows uninstall registry entries…", 9, MUTED, bg=BG)
+        status.pack(anchor="w", padx=22, pady=8)
+        records = []
+
+        def read_key(root, path, view_flag):
+            try:
+                with winreg.OpenKey(root, path, 0, winreg.KEY_READ | view_flag) as key:
+                    index = 0
+                    while True:
+                        try:
+                            subname = winreg.EnumKey(key, index)
+                            index += 1
+                        except OSError:
+                            break
+                        try:
+                            with winreg.OpenKey(key, subname, 0, winreg.KEY_READ | view_flag) as sub:
+                                def value(name):
+                                    try:
+                                        return str(winreg.QueryValueEx(sub, name)[0]).strip()
+                                    except OSError:
+                                        return ""
+                                name = value("DisplayName")
+                                system_component = value("SystemComponent")
+                                parent_name = value("ParentDisplayName")
+                                if not name or system_component == "1" or parent_name:
+                                    continue
+                                records.append({
+                                    "name": name,
+                                    "version": value("DisplayVersion"),
+                                    "publisher": value("Publisher"),
+                                    "date": value("InstallDate"),
+                                })
+                        except OSError:
+                            continue
+            except OSError:
+                pass
+
+        def load():
+            paths = [
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+            ]
+            for root, path in paths:
+                read_key(root, path, getattr(winreg, "KEY_WOW64_64KEY", 0))
+                read_key(root, path, getattr(winreg, "KEY_WOW64_32KEY", 0))
+            unique = {}
+            for item in records:
+                key = (item["name"].casefold(), item["version"], item["publisher"])
+                unique[key] = item
+            records[:] = sorted(unique.values(), key=lambda x: x["name"].casefold())
+            win.after(0, render)
+
+        def render(*_):
+            if not win.winfo_exists():
+                return
+            query = search_var.get().strip().casefold()
+            for item in tree.get_children():
+                tree.delete(item)
+            visible = [r for r in records if query in " ".join(r.values()).casefold()]
+            for r in visible:
+                tree.insert("", "end", values=(r["name"], r["version"] or "—", r["publisher"] or "—", r["date"] or "—"))
+            count.configure(text=f"{len(visible)} of {len(records)} apps")
+            status.configure(text="Inventory ready. Some apps may not appear if Windows does not register them here.")
+
+        def export_csv():
+            if not records:
+                messagebox.showinfo("Nothing to export", "Wait for the inventory to finish loading.", parent=win)
+                return
+            path = filedialog.asksaveasfilename(parent=win, title="Export installed apps", defaultextension=".csv",
+                                                filetypes=[("CSV files", "*.csv")], initialfile="Panda-PC-Installed-Apps.csv")
+            if not path:
+                return
+            try:
+                with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=["name", "version", "publisher", "date"])
+                    writer.writeheader()
+                    writer.writerows(records)
+                messagebox.showinfo("Export complete", f"Saved {len(records)} app entries to:\n{path}", parent=win)
+            except OSError as exc:
+                messagebox.showerror("Export failed", str(exc), parent=win)
+
+        search_var.trace_add("write", render)
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(4, 18))
+        self.button(actions, "Export CSV…", export_csv, primary=True).pack(side="left")
+        self.button(actions, "Windows installed apps ↗", lambda: self.open_uri("ms-settings:appsfeatures"), compact=True).pack(side="left", padx=8)
+        self.button(actions, "Close", win.destroy, compact=True).pack(side="right")
+        threading.Thread(target=load, daemon=True).start()
+
+    def show_diagnostics_center(self):
+        """Open built-in Windows diagnostic tools without running commands automatically."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Diagnostics Center")
+        win.geometry("720x620")
+        win.minsize(560, 480)
+        win.configure(bg=BG)
+        self.label(win, "Windows diagnostics center", 21, FG, True, bg=BG).pack(anchor="w", padx=24, pady=(22, 5))
+        self.label(win, "Shortcuts to trusted Windows tools. Opening a tool does not run repairs or change settings.", 9, MUTED, bg=BG, wraplength=660, justify="left").pack(anchor="w", padx=24, pady=(0, 16))
+        items = [
+            ("Reliability Monitor", "Review app crashes and Windows stability history.", ["perfmon.exe", "/rel"]),
+            ("Event Viewer", "Inspect Windows, application, and hardware-related event logs.", ["eventvwr.msc"]),
+            ("Device Manager", "Check devices and driver status.", ["devmgmt.msc"]),
+            ("Resource Monitor", "See detailed CPU, memory, disk, and network activity.", ["resmon.exe"]),
+            ("System Information", "View hardware, BIOS, and driver environment details.", ["msinfo32.exe"]),
+            ("Windows Memory Diagnostic", "Schedule a memory test; Windows may ask to restart.", ["mdsched.exe"]),
+            ("Windows Update", "Review updates and update history.", ["cmd", "/c", "start", "", "ms-settings:windowsupdate-history"]),
+            ("System Protection", "Review restore-point settings before making any changes.", ["SystemPropertiesProtection.exe"]),
+        ]
+        for title, description, command in items:
+            card = self.panel(win, padx=14, pady=11)
+            card.pack(fill="x", padx=24, pady=4)
+            left = tk.Frame(card, bg=PANEL)
+            left.pack(side="left", fill="x", expand=True)
+            self.label(left, title, 11, FG, True).pack(anchor="w")
+            self.label(left, description, 9, MUTED, wraplength=450, justify="left").pack(anchor="w", pady=(3, 0))
+            def launch(cmd=command, label=title):
+                try:
+                    if cmd[0] == "cmd":
+                        subprocess.Popen(cmd, shell=False)
+                    else:
+                        subprocess.Popen(cmd, shell=False)
+                except Exception as exc:
+                    messagebox.showerror("Could not open tool", f"{label} could not be opened.\n\n{exc}", parent=win)
+            self.button(card, "Open ↗", launch, compact=True).pack(side="right", padx=(10, 0))
+        self.label(win, "Tip: use Microsoft’s guidance before running repair commands. This app never runs SFC, DISM, memory tests, or repairs automatically.", 9, ORANGE, bg=BG, wraplength=660, justify="left").pack(anchor="w", padx=24, pady=14)
 
     def show_network_monitor(self):
         """Show lightweight live system-wide network throughput without background polling."""
