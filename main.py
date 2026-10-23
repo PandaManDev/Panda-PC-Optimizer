@@ -177,6 +177,8 @@ class PandaOptimizer(tk.Tk):
         actions = tk.Frame(process_panel, bg=PANEL)
         actions.pack(fill="x", pady=(12, 0))
         self.label(actions, "Be careful: ending a task can lose unsaved work.", 8, MUTED).pack(side="left")
+        self.button(actions, "Reset priority", lambda: self.change_process_priority(False), compact=True).pack(side="right", padx=(6, 0))
+        self.button(actions, "Lower priority", lambda: self.change_process_priority(True), compact=True).pack(side="right", padx=(6, 0))
         self.button(actions, "End task…", self.end_task, compact=True).pack(side="right")
 
         right = tk.Frame(mid, bg=BG, width=238)
@@ -649,6 +651,47 @@ class PandaOptimizer(tk.Tk):
             "• Lower in-game FPS caps to reduce load.\n"
             "• Keep Windows and graphics drivers updated.\n\n"
             "This app avoids risky registry cleaners and automatic service disabling.")
+
+    def change_process_priority(self, lower):
+        """Adjust a selected process's scheduling priority, never its CPU affinity or system services."""
+        if psutil is None:
+            return
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a process", "Choose a process in the list first.")
+            return
+        name, _, _, pid = self.tree.item(sel[0], "values")
+        pid = int(pid)
+        protected = {
+            "system", "registry", "smss.exe", "csrss.exe", "wininit.exe",
+            "services.exe", "lsass.exe", "winlogon.exe", "svchost.exe",
+            "fontdrvhost.exe", "memory compression"
+        }
+        if pid <= 4 or name.strip().lower() in protected or pid == os.getpid():
+            messagebox.showwarning("Protected process", "This process is protected from priority changes.")
+            return
+        action = "lower to Below normal" if lower else "reset to Normal"
+        explanation = (
+            "This changes Windows scheduling priority only. It does not limit CPU usage, and the app may feel slower."
+            if lower else
+            "This restores the process to Normal scheduling priority."
+        )
+        if not messagebox.askyesno("Confirm priority change", f"{action}: {name} (PID {pid})?\n\n{explanation}"):
+            return
+        try:
+            proc = psutil.Process(pid)
+            priority = getattr(psutil, "BELOW_NORMAL_PRIORITY_CLASS", None) if lower else getattr(psutil, "NORMAL_PRIORITY_CLASS", None)
+            if priority is None:
+                messagebox.showerror("Not supported", "This priority setting is not supported on this system.")
+                return
+            proc.nice(priority)
+            messagebox.showinfo("Priority updated", f"{name} is now set to {'Below normal' if lower else 'Normal'} priority.")
+        except psutil.AccessDenied:
+            messagebox.showerror("Access denied", "Windows blocked this change. Try a regular user app rather than a protected process.")
+        except psutil.NoSuchProcess:
+            messagebox.showinfo("Process ended", "That process is no longer running.")
+        except Exception as exc:
+            messagebox.showerror("Priority change failed", str(exc))
 
     def end_task(self):
         if psutil is None:
