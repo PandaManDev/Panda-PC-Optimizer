@@ -20,6 +20,8 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#AppName}
 Uninstallable=yes
+UninstallDisplayIcon={app}\\Panda PC Optimizer.exe
+CreateUninstallRegKey=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
