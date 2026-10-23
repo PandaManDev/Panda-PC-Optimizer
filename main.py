@@ -106,6 +106,8 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "▤   Processes", False, lambda: self.focus_processes())
         self.nav_button(sidebar, "⚙   Background services", False, lambda: self.show_services())
         self.nav_button(sidebar, "⇅   Network monitor", False, lambda: self.show_network_monitor())
+        self.nav_button(sidebar, "▰   Disk analyzer", False, lambda: self.show_disk_analyzer())
+        self.nav_button(sidebar, "🎮   Gaming dashboard", False, lambda: self.show_gaming_dashboard())
         self.nav_button(sidebar, "⚡   Power plans", False, lambda: self.show_power_plans())
         self.nav_button(sidebar, "🧹   Safe cleanup", False, lambda: self.show_safe_cleanup())
         self.nav_button(sidebar, "🚀   Startup apps", False, lambda: self.show_startup_apps())
@@ -856,6 +858,144 @@ class PandaOptimizer(tk.Tk):
         self.button(actions, "Apply selected plan", activate, primary=True).pack(side="right")
         self.label(win, "Tip: Power saver may reduce game performance. Avoid third-party 'ultimate boost' tweaks; this tool only uses Windows powercfg.", 8, ORANGE, bg=BG, wraplength=620, justify="left").pack(anchor="w", padx=22, pady=(0, 16))
         load_plans()
+
+
+    def show_disk_analyzer(self):
+        """Show mounted drive capacity and open Windows storage settings."""
+        import shutil
+
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Disk Space Analyzer")
+        win.geometry("760x540")
+        win.minsize(620, 420)
+        win.configure(bg=BG)
+        self.label(win, "Disk space analyzer", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Review drive capacity before deciding what to remove. This tool does not delete files.", 9, MUTED, bg=BG, wraplength=680).pack(anchor="w", padx=22, pady=(0, 16))
+
+        wrap = tk.Frame(win, bg=BG)
+        wrap.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        canvas = tk.Canvas(wrap, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def human_size(value):
+            value = float(value)
+            for unit in ("B", "KB", "MB", "GB", "TB"):
+                if value < 1024 or unit == "TB":
+                    return f"{value:.1f} {unit}"
+                value /= 1024
+            return f"{value:.1f} TB"
+
+        def load():
+            for child in inner.winfo_children():
+                child.destroy()
+            found = set()
+            try:
+                if psutil is not None:
+                    partitions = psutil.disk_partitions(all=False)
+                    for part in partitions:
+                        path = part.mountpoint
+                        if path in found:
+                            continue
+                        found.add(path)
+                        try:
+                            usage = psutil.disk_usage(path)
+                        except (PermissionError, OSError):
+                            continue
+                        total = usage.total
+                        used = usage.used
+                        free = usage.free
+                        percent = usage.percent
+                        card = self.panel(inner, padx=15, pady=13)
+                        card.pack(fill="x", pady=(0, 10), padx=(0, 6))
+                        heading = tk.Frame(card, bg=PANEL)
+                        heading.pack(fill="x")
+                        self.label(heading, f"{path}  •  {part.device or 'Drive'}", 11, FG, True).pack(side="left")
+                        color = RED if percent >= 90 else ORANGE if percent >= 75 else GREEN
+                        self.label(heading, f"{percent:.0f}% used", 10, color, True).pack(side="right")
+                        bar = ttk.Progressbar(card, maximum=100, value=percent, mode="determinate")
+                        bar.pack(fill="x", pady=(10, 8))
+                        self.label(card, f"Used: {human_size(used)}    Free: {human_size(free)}    Total: {human_size(total)}", 9, MUTED).pack(anchor="w")
+                else:
+                    root = os.environ.get("SystemDrive", "C:") + "\\\\"
+                    usage = shutil.disk_usage(root)
+                    found.add(root)
+                    card = self.panel(inner, padx=15, pady=13)
+                    card.pack(fill="x", pady=(0, 10))
+                    self.label(card, f"{root} — {human_size(usage.used)} used / {human_size(usage.total)} total", 10, FG).pack(anchor="w")
+            except Exception as exc:
+                self.label(inner, f"Could not read drive information: {exc}", 10, RED).pack(anchor="w")
+            if not found:
+                self.label(inner, "No readable mounted drives were found.", 10, MUTED).pack(anchor="w")
+            self.label(inner, "Tip: Windows Settings → System → Storage can show temporary files and category breakdowns.", 9, ORANGE, wraplength=620, justify="left").pack(anchor="w", pady=(4, 8))
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "↻ Refresh drives", load, compact=True).pack(side="left")
+        self.button(actions, "Open Windows Storage", lambda: self.open_uri("ms-settings:storagesense"), primary=True).pack(side="right")
+        load()
+
+    def show_gaming_dashboard(self):
+        """Provide a lightweight, read-only gaming readiness snapshot."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Gaming Dashboard")
+        win.geometry("620x510")
+        win.minsize(520, 430)
+        win.configure(bg=BG)
+        self.label(win, "Gaming dashboard", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "A quick readiness check for your current Windows session.", 9, MUTED, bg=BG).pack(anchor="w", padx=22, pady=(0, 16))
+        cards = tk.Frame(win, bg=BG)
+        cards.pack(fill="x", padx=16)
+        values = {}
+        for title, key, color in [("CPU LOAD", "cpu", PURPLE), ("RAM USED", "ram", GREEN), ("SYSTEM DRIVE", "disk", ORANGE)]:
+            card = self.panel(cards, padx=13, pady=14)
+            card.pack(side="left", fill="both", expand=True, padx=6)
+            self.label(card, title, 8, color, True).pack(anchor="w")
+            values[key] = tk.StringVar(value="Checking…")
+            tk.Label(card, textvariable=values[key], bg=PANEL, fg=FG, font=("Segoe UI", 18, "bold")).pack(anchor="w", pady=(8, 0))
+        tips = self.panel(win, padx=16, pady=14)
+        tips.pack(fill="both", expand=True, padx=22, pady=14)
+        self.label(tips, "BEFORE YOU LAUNCH A GAME", 9, PURPLE, True).pack(anchor="w", pady=(0, 8))
+        recommendations = [
+            "Close apps you recognize and do not need; save work first.",
+            "Keep enough free disk space for updates and shader caches.",
+            "Use Balanced for everyday use; try Best performance only while plugged in.",
+            "Avoid ending Windows processes or disabling security software.",
+            "Game Mode reduces this app’s own refresh rate; it cannot guarantee higher FPS."
+        ]
+        for tip in recommendations:
+            self.label(tips, "•  " + tip, 9, MUTED, wraplength=520, justify="left").pack(anchor="w", pady=4)
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "Open Windows Gaming settings", lambda: self.open_uri("ms-settings:gaming"), primary=True).pack(side="left")
+        self.button(actions, "Open power plans", self.show_power_plans, compact=True).pack(side="right")
+
+        def update_snapshot():
+            if not win.winfo_exists():
+                return
+            try:
+                if psutil is None:
+                    values["cpu"].set("N/A")
+                    values["ram"].set("N/A")
+                    values["disk"].set("N/A")
+                else:
+                    values["cpu"].set(f"{psutil.cpu_percent(interval=None):.0f}%")
+                    mem = psutil.virtual_memory()
+                    values["ram"].set(f"{mem.percent:.0f}%")
+                    root = os.environ.get("SystemDrive", "C:") + "\\\\"
+                    disk = psutil.disk_usage(root)
+                    values["disk"].set(f"{disk.percent:.0f}%")
+            except Exception:
+                for variable in values.values():
+                    variable.set("N/A")
+            win.after(2500, update_snapshot)
+
+        update_snapshot()
 
     def show_network_monitor(self):
         """Show lightweight live system-wide network throughput without background polling."""
