@@ -35,6 +35,8 @@ class PandaOptimizer(tk.Tk):
         self.stats = {}
         self._rows = []
         self._after_id = None
+        self.history = {"cpu": [], "ram": [], "disk": []}
+        self.history_window = None
 
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -95,6 +97,8 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "▤   Processes", False, lambda: self.focus_processes())
         self.nav_button(sidebar, "⚙   Windows tools", False, lambda: self.open_uri("ms-settings:"))
         self.nav_button(sidebar, "♡   Performance tips", False, lambda: self.show_tips())
+        self.nav_button(sidebar, "▥   Performance history", False, lambda: self.show_history())
+        self.nav_button(sidebar, "ⓘ   System report", False, lambda: self.show_report())
 
         spacer = tk.Frame(sidebar, bg=SIDEBAR)
         spacer.pack(fill="both", expand=True)
@@ -260,6 +264,9 @@ class PandaOptimizer(tk.Tk):
                 out.config(text=f"{val:.0f}%")
                 bar.place_configure(relwidth=max(0, min(1, val / 100)))
                 bar.config(bg=RED if val >= 90 else ORANGE if val >= 70 else PURPLE)
+            for key, val in values.items():
+                self.history[key].append(float(val))
+                self.history[key] = self.history[key][-60:]
             self._rows = []
             for proc in psutil.process_iter(["pid", "name", "memory_info"]):
                 try:
@@ -308,6 +315,96 @@ class PandaOptimizer(tk.Tk):
     def focus_processes(self):
         self.search_entry.focus_set()
         self.tree.focus_set()
+
+    def show_report(self):
+        if psutil is None:
+            return
+        try:
+            vm = psutil.virtual_memory()
+            cpu_count = psutil.cpu_count(logical=False) or "Unknown"
+            logical_count = psutil.cpu_count(logical=True) or "Unknown"
+            dt = __import__("datetime")
+            boot = dt.datetime.fromtimestamp(psutil.boot_time())
+            uptime = dt.timedelta(seconds=int(__import__("time").time() - psutil.boot_time()))
+            battery = psutil.sensors_battery()
+            battery_text = "Not reported by this PC" if battery is None else f"{battery.percent:.0f}%"
+            top = sorted(self._rows, reverse=True)[:8]
+            process_text = "\n".join(f"  • {name}: {cpu:.1f}% CPU, {ram:.0f} MB RAM (PID {pid})"
+                                     for cpu, name, ram, pid in top) or "  No process data available"
+            messagebox.showinfo("Panda system report",
+                f"PROCESSOR\n  Physical cores: {cpu_count} | Logical processors: {logical_count}\n"
+                f"  Current load: {psutil.cpu_percent(interval=None):.1f}%\n\n"
+                f"MEMORY\n  Total: {vm.total / (1024**3):.2f} GB\n"
+                f"  Available: {vm.available / (1024**3):.2f} GB\n"
+                f"  In use: {vm.percent:.0f}%\n\n"
+                f"SYSTEM\n  Booted: {boot.strftime('%Y-%m-%d %H:%M')}\n"
+                f"  Uptime: {uptime}\n  Battery: {battery_text}\n\n"
+                f"TOP CPU PROCESSES\n{process_text}")
+        except Exception as exc:
+            messagebox.showerror("Report unavailable", f"Windows could not build the report.\n{exc}")
+
+    def show_history(self):
+        if self.history_window is not None and self.history_window.winfo_exists():
+            self.history_window.lift()
+            self.draw_history()
+            return
+        win = tk.Toplevel(self)
+        self.history_window = win
+        win.title("Panda PC Optimizer — Performance history")
+        win.geometry("820x520")
+        win.minsize(600, 400)
+        win.configure(bg=BG)
+        header = tk.Frame(win, bg=BG)
+        header.pack(fill="x", padx=20, pady=(18, 10))
+        self.label(header, "Performance history", 19, FG, True).pack(anchor="w")
+        self.label(header, "Recent samples from this session • up to 60 readings", 9, MUTED).pack(anchor="w", pady=(3, 0))
+        canvas = tk.Canvas(win, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
+        canvas.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+        self.history_canvas = canvas
+        legend = tk.Frame(win, bg=BG)
+        legend.pack(fill="x", padx=20, pady=(0, 16))
+        for title, color in [("CPU", PURPLE), ("RAM", GREEN), ("Disk", ORANGE)]:
+            self.label(legend, "● " + title, 9, color, True).pack(side="left", padx=(0, 18))
+        canvas.bind("<Configure>", lambda _event: self.draw_history())
+        win.protocol("WM_DELETE_WINDOW", self.close_history)
+        self.draw_history()
+
+    def close_history(self):
+        if self.history_window is not None:
+            self.history_window.destroy()
+        self.history_window = None
+        self.history_canvas = None
+
+    def draw_history(self):
+        canvas = getattr(self, "history_canvas", None)
+        if canvas is None or not canvas.winfo_exists():
+            return
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 300)
+        height = max(canvas.winfo_height(), 220)
+        left, right, top, bottom = 48, width - 18, 20, height - 32
+        plot_h, plot_w = bottom - top, right - left
+        for value in (0, 25, 50, 75, 100):
+            y = bottom - plot_h * value / 100
+            canvas.create_line(left, y, right, y, fill=BORDER)
+            canvas.create_text(left - 10, y, text=str(value), fill=MUTED, anchor="e",
+                               font=("Segoe UI", 8))
+        for key, color in [("cpu", PURPLE), ("ram", GREEN), ("disk", ORANGE)]:
+            data = self.history[key]
+            if len(data) < 2:
+                canvas.create_text(width / 2, height / 2, text="Collecting samples…",
+                                   fill=MUTED, font=("Segoe UI", 11))
+                continue
+            points = []
+            for i, val in enumerate(data):
+                x = left + plot_w * i / max(1, len(data) - 1)
+                y = bottom - plot_h * max(0, min(100, val)) / 100
+                points.extend((x, y))
+            canvas.create_line(*points, fill=color, width=2, smooth=True)
+        canvas.create_text(left, height - 10, text="Older", fill=MUTED, anchor="w",
+                           font=("Segoe UI", 8))
+        canvas.create_text(right, height - 10, text="Latest", fill=MUTED, anchor="e",
+                           font=("Segoe UI", 8))
 
     def show_tips(self):
         messagebox.showinfo("Performance tips",
