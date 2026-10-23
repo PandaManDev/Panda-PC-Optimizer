@@ -115,6 +115,7 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "🖥   Hardware report", False, lambda: self.show_hardware_report())
         self.nav_button(sidebar, "🌐   Internet diagnostics", False, lambda: self.show_internet_diagnostics())
         self.nav_button(sidebar, "✓   Optimization check", False, lambda: self.show_optimization_check())
+        self.nav_button(sidebar, "🚀   Optimization center", False, lambda: self.show_optimization_center())
         self.nav_button(sidebar, "🛠   Windows maintenance", False, lambda: self.show_windows_maintenance())
         self.nav_button(sidebar, "🔎   Process inspector", False, lambda: self.show_process_inspector())
         self.nav_button(sidebar, "📦   Installed apps", False, lambda: self.show_installed_apps())
@@ -1171,6 +1172,138 @@ class PandaOptimizer(tk.Tk):
         run_button = self.button(actions, "Run diagnostics", run_checks, primary=True)
         run_button.pack(side="left")
         self.button(actions, "Open Network settings", lambda: self.open_uri("ms-settings:network-status"), compact=True).pack(side="right")
+
+    def show_optimization_center(self):
+        """Apply a small set of real, reversible Windows performance settings."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Optimization Center")
+        win.geometry("740x600")
+        win.minsize(600, 500)
+        win.configure(bg=BG)
+        self.label(win, "Optimization center", 22, FG, True, bg=BG).pack(anchor="w", padx=24, pady=(22, 4))
+        self.label(win, "Real Windows settings with confirmation and a restore option. No fake RAM boosters or mass service disabling.", 9, MUTED, bg=BG, wraplength=680, justify="left").pack(anchor="w", padx=24, pady=(0, 16))
+        power_var = tk.BooleanVar(value=True)
+        game_var = tk.BooleanVar(value=True)
+        card = self.panel(win, padx=16, pady=15)
+        card.pack(fill="x", padx=24, pady=(0, 12))
+        self.label(card, "AVAILABLE OPTIMIZATIONS", 9, PURPLE, True).pack(anchor="w", pady=(0, 10))
+        tk.Checkbutton(card, text="Switch to High performance power plan", variable=power_var, bg=PANEL, fg=FG, selectcolor=PANEL_HI, activebackground=PANEL, activeforeground=FG, font=("Segoe UI", 10, "bold"), wraplength=620, justify="left").pack(anchor="w", pady=4)
+        self.label(card, "May improve responsiveness, but uses more electricity and can increase heat/fan noise. Balanced is usually better for laptop battery life.", 9, MUTED, wraplength=650, justify="left").pack(anchor="w", padx=(25, 0), pady=(0, 8))
+        tk.Checkbutton(card, text="Enable Windows Game Mode for this user", variable=game_var, bg=PANEL, fg=FG, selectcolor=PANEL_HI, activebackground=PANEL, activeforeground=FG, font=("Segoe UI", 10, "bold"), wraplength=620, justify="left").pack(anchor="w", pady=4)
+        self.label(card, "Updates two standard per-user Game Bar/Game Mode registry values. Results vary by Windows version and game; no FPS guarantee.", 9, MUTED, wraplength=650, justify="left").pack(anchor="w", padx=(25, 0), pady=(0, 5))
+        status = tk.StringVar(value="Select options, then Apply. Original settings are backed up locally first.")
+        tk.Label(win, textvariable=status, bg=PANEL, fg=FG, justify="left", anchor="w", wraplength=660, padx=14, pady=12).pack(fill="x", padx=24, pady=(0, 12))
+        self.label(win, "Restore previous settings reverts the values saved by this tool. It cannot undo unrelated changes made elsewhere after the backup.", 9, ORANGE, bg=BG, wraplength=680, justify="left").pack(anchor="w", padx=24, pady=(0, 12))
+        folder = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "PandaPCOptimizer")
+        backup_path = os.path.join(folder, "optimization_backup.json")
+        game_key_path = r"Software\Microsoft\GameBar"
+        high_perf_guid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+
+        def active_plan():
+            result = subprocess.run(["powercfg.exe", "/getactivescheme"], capture_output=True, text=True, timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if result.returncode:
+                raise RuntimeError((result.stderr or result.stdout or "powercfg failed").strip())
+            import re
+            match = re.search(r"([0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12})", result.stdout)
+            if not match:
+                raise RuntimeError("Could not identify the active power plan.")
+            return match.group(1).lower()
+
+        def registry_snapshot():
+            values = {"_key_existed": True}
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, game_key_path, 0, winreg.KEY_READ) as key:
+                    for name in ("AutoGameModeEnabled", "AllowAutoGameMode"):
+                        try:
+                            value, kind = winreg.QueryValueEx(key, name)
+                            values[name] = {"exists": True, "value": value, "type": kind}
+                        except FileNotFoundError:
+                            values[name] = {"exists": False}
+            except FileNotFoundError:
+                values["_key_existed"] = False
+                values.update({name: {"exists": False} for name in ("AutoGameModeEnabled", "AllowAutoGameMode")})
+            return values
+
+        def save_backup(data):
+            os.makedirs(folder, exist_ok=True)
+            temp = backup_path + ".tmp"
+            with open(temp, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2)
+            os.replace(temp, backup_path)
+
+        def apply_selected():
+            if not power_var.get() and not game_var.get():
+                messagebox.showinfo("Nothing selected", "Select at least one option.", parent=win)
+                return
+            labels = (["High performance power plan (higher power use/heat)"] if power_var.get() else []) + (["Windows Game Mode user settings"] if game_var.get() else [])
+            if not messagebox.askyesno("Confirm optimization", "Apply these settings?\n\n• " + "\n• ".join(labels) + "\n\nYour current values will be backed up first.", icon="warning", parent=win):
+                return
+            try:
+                backup = {}
+                if os.path.isfile(backup_path):
+                    try:
+                        with open(backup_path, "r", encoding="utf-8") as handle:
+                            backup = json.load(handle)
+                    except (OSError, ValueError):
+                        backup = {}
+                if power_var.get() and "power_plan" not in backup:
+                    backup["power_plan"] = active_plan()
+                if game_var.get() and "game_mode_registry" not in backup:
+                    backup["game_mode_registry"] = registry_snapshot()
+                save_backup(backup)
+                results = []
+                if power_var.get():
+                    result = subprocess.run(["powercfg.exe", "/setactive", high_perf_guid], capture_output=True, text=True, timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    results.append("Power plan: " + ("High performance selected." if result.returncode == 0 else "High performance plan is unavailable on this PC."))
+                if game_var.get():
+                    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, game_key_path, 0, winreg.KEY_SET_VALUE) as key:
+                        winreg.SetValueEx(key, "AutoGameModeEnabled", 0, winreg.REG_DWORD, 1)
+                        winreg.SetValueEx(key, "AllowAutoGameMode", 0, winreg.REG_DWORD, 1)
+                    results.append("Windows Game Mode: enabled for this user.")
+                status.set("\n".join(results) + "\n\nBackup saved locally. Some settings may require restarting a game or signing out.")
+                messagebox.showinfo("Optimization results", status.get(), parent=win)
+            except Exception as exc:
+                status.set("Could not fully apply settings:\n" + str(exc))
+                messagebox.showerror("Optimization failed", str(exc), parent=win)
+
+        def restore_previous():
+            if not os.path.isfile(backup_path):
+                messagebox.showinfo("No backup", "Apply an optimization first; no backup exists yet.", parent=win)
+                return
+            if not messagebox.askyesno("Restore previous settings", "Restore the power plan and Game Mode registry values saved by this tool?", icon="warning", parent=win):
+                return
+            try:
+                with open(backup_path, "r", encoding="utf-8") as handle:
+                    backup = json.load(handle)
+                results = []
+                if backup.get("power_plan"):
+                    result = subprocess.run(["powercfg.exe", "/setactive", backup["power_plan"]], capture_output=True, text=True, timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    results.append("Previous power plan restored." if result.returncode == 0 else "Could not restore power plan: " + (result.stderr or result.stdout or "unknown error").strip())
+                reg = backup.get("game_mode_registry")
+                if reg:
+                    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, game_key_path, 0, winreg.KEY_SET_VALUE) as key:
+                        for name in ("AutoGameModeEnabled", "AllowAutoGameMode"):
+                            entry = reg.get(name, {"exists": False})
+                            if entry.get("exists"):
+                                winreg.SetValueEx(key, name, 0, int(entry.get("type", winreg.REG_DWORD)), entry.get("value"))
+                            else:
+                                try:
+                                    winreg.DeleteValue(key, name)
+                                except FileNotFoundError:
+                                    pass
+                    results.append("Previous Game Mode values restored.")
+                status.set("\n".join(results) + "\n\nBackup retained for review.")
+                messagebox.showinfo("Restore results", status.get(), parent=win)
+            except Exception as exc:
+                status.set("Restore failed:\n" + str(exc))
+                messagebox.showerror("Restore failed", str(exc), parent=win)
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=24, pady=(0, 20))
+        self.button(actions, "Apply selected…", apply_selected, primary=True).pack(side="left")
+        self.button(actions, "Restore previous…", restore_previous).pack(side="left", padx=8)
+        self.button(actions, "Visual effects settings ↗", lambda: self.open_uri("ms-settings:easeofaccess-visualeffects"), compact=True).pack(side="left")
+        self.button(actions, "Close", win.destroy, compact=True).pack(side="right")
 
     def show_optimization_check(self):
         """Offer a read-only checklist based on current resource usage."""
