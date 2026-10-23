@@ -1,4 +1,4 @@
-name: Build and Release Panda PC Optimizer EXE
+name: Build and Release Panda PC Optimizer EXE and Installer
 
 on:
   push:
@@ -18,29 +18,43 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
       - name: Build executable
         run: pyinstaller --noconfirm --clean --onefile --windowed --name "Panda PC Optimizer" main.py
-      - name: Upload EXE as workflow artifact
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler not found at $iscc" }
+          & $iscc "installer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
+      - name: Upload Windows builds as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Panda-PC-Optimizer-Windows-EXE
-          path: dist/Panda PC Optimizer.exe
+          name: Panda-PC-Optimizer-Windows-Installer-and-EXE
+          path: |
+            dist/Panda PC Optimizer.exe
+            dist/Panda PC Optimizer Setup.exe
           if-no-files-found: error
           retention-days: 30
-      - name: Publish GitHub Release with EXE
+      - name: Publish GitHub Release with EXE and Installer
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.1.${{ github.run_number }}
           name: Panda PC Optimizer v0.1.${{ github.run_number }}
           body: |
-            Automated Windows executable build of Panda PC Optimizer.
+            Automated Windows build of Panda PC Optimizer.
 
-            Download **Panda PC Optimizer.exe** below, save it to your Windows PC, and double-click to run.
-            Windows SmartScreen may show a warning because this app is not code-signed.
-          files: dist/Panda PC Optimizer.exe
+            - **Recommended:** Download **Panda PC Optimizer Setup.exe** to install the app with Start Menu shortcuts and an optional desktop shortcut. It installs for the current Windows user and does not require administrator access.
+            - **Portable option:** Download **Panda PC Optimizer.exe** to run without installing.
+            Windows SmartScreen may show a warning because the app is not code-signed.
+          files: |
+            dist/Panda PC Optimizer.exe
+            dist/Panda PC Optimizer Setup.exe
           fail_on_unmatched_files: true
           generate_release_notes: true
