@@ -1,6 +1,6 @@
 ; Inno Setup installer for Panda PC Optimizer
 #define AppName "Panda PC Optimizer"
-#define AppVersion "0.1.0"
+#define AppVersion "0.1.1"
 #define AppPublisher "PandaManDev"
 #define AppExeName "Panda PC Optimizer.exe"
 
@@ -20,6 +20,8 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#AppName}
 Uninstallable=yes
+CloseApplications=yes
+RestartApplications=no
 UninstallDisplayIcon={app}\\Panda PC Optimizer.exe
 CreateUninstallRegKey=yes
 
