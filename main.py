@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -99,6 +100,7 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "◈   Overview", True)
         self.nav_button(sidebar, "▤   Processes", False, lambda: self.focus_processes())
         self.nav_button(sidebar, "⚙   Background services", False, lambda: self.show_services())
+        self.nav_button(sidebar, "⇅   Network monitor", False, lambda: self.show_network_monitor())
         self.nav_button(sidebar, "⚙   Windows tools", False, lambda: self.open_uri("ms-settings:"))
         self.nav_button(sidebar, "♡   Performance tips", False, lambda: self.show_tips())
         self.nav_button(sidebar, "▥   Performance history", False, lambda: self.show_history())
@@ -556,6 +558,89 @@ class PandaOptimizer(tk.Tk):
         self.button(buttons, "▶  Start selected", lambda: act("start"), primary=True, compact=True).pack(side="right", padx=(8, 0))
         self.button(buttons, "■  Stop selected", lambda: act("stop"), compact=True).pack(side="right")
         load_services()
+
+    def show_network_monitor(self):
+        """Show lightweight live system-wide network throughput without background polling."""
+        if psutil is None:
+            messagebox.showerror("Dependency missing", "Install the monitoring dependency to use Network Monitor.")
+            return
+        try:
+            previous = psutil.net_io_counters()
+        except Exception as exc:
+            messagebox.showerror("Network monitor unavailable", str(exc))
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Network Monitor")
+        win.geometry("560x390")
+        win.minsize(480, 340)
+        win.configure(bg=BG)
+        self.label(win, "Network activity", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Live totals and transfer rates for all Windows network adapters.", 9, MUTED, bg=BG).pack(anchor="w", padx=22, pady=(0, 18))
+
+        cards = tk.Frame(win, bg=BG)
+        cards.pack(fill="x", padx=16)
+        download_var = tk.StringVar(value="0 B/s")
+        upload_var = tk.StringVar(value="0 B/s")
+        received_var = tk.StringVar(value="—")
+        sent_var = tk.StringVar(value="—")
+        for title, variable, color in [
+            ("DOWNLOAD RATE", download_var, GREEN),
+            ("UPLOAD RATE", upload_var, PURPLE),
+        ]:
+            card = self.panel(cards, padx=16, pady=15)
+            card.pack(side="left", fill="both", expand=True, padx=6)
+            self.label(card, title, 8, color, True).pack(anchor="w")
+            tk.Label(card, textvariable=variable, bg=PANEL, fg=FG,
+                     font=("Segoe UI", 22, "bold")).pack(anchor="w", pady=(8, 0))
+
+        totals = self.panel(win, padx=16, pady=14)
+        totals.pack(fill="x", padx=22, pady=14)
+        self.label(totals, "SESSION COUNTERS (WINDOWS NETWORK TOTALS)", 8, MUTED, True).pack(anchor="w", pady=(0, 10))
+        for title, variable in [("Received", received_var), ("Sent", sent_var)]:
+            row = tk.Frame(totals, bg=PANEL)
+            row.pack(fill="x", pady=4)
+            self.label(row, title, 10, MUTED).pack(side="left")
+            self.label(row, "", 9, MUTED).pack(side="left", expand=True, fill="x")
+            tk.Label(row, textvariable=variable, bg=PANEL, fg=FG,
+                     font=("Segoe UI", 10, "bold")).pack(side="right")
+
+        self.label(win, "Rates are system-wide and may include background apps. Monitoring stops when this window closes.", 8, MUTED, wraplength=500, justify="left", bg=BG).pack(anchor="w", padx=22, pady=(0, 12))
+        state = {"closed": False, "previous": previous, "when": time.monotonic()}
+
+        def human_bytes(value):
+            value = max(0.0, float(value))
+            units = ("B", "KB", "MB", "GB", "TB")
+            for unit in units:
+                if value < 1024 or unit == units[-1]:
+                    return f"{value:.1f} {unit}"
+                value /= 1024
+            return f"{value:.1f} TB"
+
+        def tick():
+            if state["closed"] or not win.winfo_exists():
+                return
+            try:
+                current = psutil.net_io_counters()
+                now = time.monotonic()
+                elapsed = max(0.001, now - state["when"])
+                download_var.set(human_bytes((current.bytes_recv - state["previous"].bytes_recv) / elapsed) + "/s")
+                upload_var.set(human_bytes((current.bytes_sent - state["previous"].bytes_sent) / elapsed) + "/s")
+                received_var.set(human_bytes(current.bytes_recv))
+                sent_var.set(human_bytes(current.bytes_sent))
+                state["previous"] = current
+                state["when"] = now
+            except Exception:
+                download_var.set("Unavailable")
+                upload_var.set("Unavailable")
+            win.after(1500, tick)
+
+        def close_window():
+            state["closed"] = True
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", close_window)
+        tick()
 
     def show_tips(self):
         messagebox.showinfo("Performance tips",
