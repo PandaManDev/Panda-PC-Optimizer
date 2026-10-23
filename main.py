@@ -4,6 +4,8 @@ import time
 import threading
 import urllib.request
 import subprocess
+import platform
+import socket
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
@@ -108,6 +110,9 @@ class PandaOptimizer(tk.Tk):
         self.nav_button(sidebar, "⇅   Network monitor", False, lambda: self.show_network_monitor())
         self.nav_button(sidebar, "▰   Disk analyzer", False, lambda: self.show_disk_analyzer())
         self.nav_button(sidebar, "🎮   Gaming dashboard", False, lambda: self.show_gaming_dashboard())
+        self.nav_button(sidebar, "🖥   Hardware report", False, lambda: self.show_hardware_report())
+        self.nav_button(sidebar, "🌐   Internet diagnostics", False, lambda: self.show_internet_diagnostics())
+        self.nav_button(sidebar, "✓   Optimization check", False, lambda: self.show_optimization_check())
         self.nav_button(sidebar, "⚡   Power plans", False, lambda: self.show_power_plans())
         self.nav_button(sidebar, "🧹   Safe cleanup", False, lambda: self.show_safe_cleanup())
         self.nav_button(sidebar, "🚀   Startup apps", False, lambda: self.show_startup_apps())
@@ -996,6 +1001,230 @@ class PandaOptimizer(tk.Tk):
             win.after(2500, update_snapshot)
 
         update_snapshot()
+
+
+    def show_hardware_report(self):
+        """Show a local-only overview of Windows and hardware information."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Hardware Report")
+        win.geometry("720x600")
+        win.minsize(580, 450)
+        win.configure(bg=BG)
+        self.label(win, "Hardware & system report", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Collected locally from Windows and available system counters.", 9, MUTED, bg=BG).pack(anchor="w", padx=22, pady=(0, 14))
+        wrap = tk.Frame(win, bg=BG)
+        wrap.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        text_box = tk.Text(wrap, bg=PANEL, fg=FG, insertbackground=FG, relief="flat",
+                           font=("Consolas", 10), wrap="word", padx=14, pady=12)
+        scroll = ttk.Scrollbar(wrap, orient="vertical", command=text_box.yview)
+        text_box.configure(yscrollcommand=scroll.set)
+        text_box.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        def build_report():
+            lines = [
+                "PANDA PC OPTIMIZER — HARDWARE REPORT",
+                "=" * 43,
+                f"Windows / OS: {platform.platform()}",
+                f"Windows version: {platform.version()}",
+                f"Computer name: {platform.node()}",
+                f"Architecture: {platform.machine()}",
+                f"Processor: {platform.processor() or 'Not reported by Windows'}",
+                f"Logical CPU threads: {os.cpu_count() or 'Unknown'}",
+                "",
+            ]
+            if psutil is not None:
+                try:
+                    freq = psutil.cpu_freq()
+                    lines.append(f"CPU frequency: {freq.current:.0f} MHz" if freq else "CPU frequency: Not available")
+                except Exception:
+                    lines.append("CPU frequency: Not available")
+                try:
+                    mem = psutil.virtual_memory()
+                    lines.extend([
+                        f"Installed / usable RAM: {mem.total / (1024 ** 3):.2f} GB",
+                        f"RAM currently used: {mem.percent:.0f}% ({mem.used / (1024 ** 3):.2f} GB)",
+                    ])
+                except Exception:
+                    lines.append("RAM: Not available")
+                try:
+                    root = os.environ.get("SystemDrive", "C:") + "\\\\"
+                    disk = psutil.disk_usage(root)
+                    lines.extend([
+                        f"System drive: {root}",
+                        f"System drive total: {disk.total / (1024 ** 3):.1f} GB",
+                        f"System drive free: {disk.free / (1024 ** 3):.1f} GB",
+                    ])
+                except Exception:
+                    lines.append("System drive: Not available")
+                try:
+                    battery = psutil.sensors_battery()
+                    if battery:
+                        state = "plugged in" if battery.power_plugged else "on battery"
+                        lines.append(f"Battery: {battery.percent:.0f}% ({state})")
+                    else:
+                        lines.append("Battery: No battery detected")
+                except Exception:
+                    lines.append("Battery: Not available")
+                try:
+                    lines.append(f"Boot time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(psutil.boot_time()))}")
+                except Exception:
+                    pass
+            else:
+                lines.append("Install psutil to include RAM, drive, and battery details.")
+            lines.extend(["", "Privacy: this report is generated on this PC and is not uploaded automatically.",
+                          "Note: Windows may not expose exact GPU model details through Python alone."])
+            return "\n".join(lines)
+
+        def save_report():
+            path = filedialog.asksaveasfilename(parent=win, title="Save hardware report",
+                defaultextension=".txt", filetypes=[("Text report", "*.txt")],
+                initialfile="Panda-PC-Hardware-Report.txt")
+            if not path:
+                return
+            try:
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(build_report())
+                messagebox.showinfo("Report saved", f"Saved hardware report to:\\n{path}", parent=win)
+            except OSError as exc:
+                messagebox.showerror("Save failed", str(exc), parent=win)
+
+        text_box.insert("1.0", build_report())
+        text_box.configure(state="disabled")
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "Save report as TXT", save_report, primary=True).pack(side="left")
+        self.button(actions, "Refresh report", lambda: (text_box.configure(state="normal"), text_box.delete("1.0", "end"), text_box.insert("1.0", build_report()), text_box.configure(state="disabled")), compact=True).pack(side="right")
+
+    def show_internet_diagnostics(self):
+        """Run basic DNS and ping checks off the UI thread."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Internet Diagnostics")
+        win.geometry("650x470")
+        win.minsize(540, 380)
+        win.configure(bg=BG)
+        self.label(win, "Internet diagnostics", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "Basic connectivity checks. This sends DNS lookups and ping packets to a public resolver.", 9, MUTED, bg=BG, wraplength=590).pack(anchor="w", padx=22, pady=(0, 14))
+        result = tk.Text(win, bg=PANEL, fg=FG, relief="flat", font=("Consolas", 10), wrap="word", padx=14, pady=12, height=12)
+        result.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        result.insert("1.0", "Ready to test. Select Run diagnostics.\\n")
+        result.configure(state="disabled")
+        state = {"running": False}
+
+        def write_result(value):
+            if not win.winfo_exists():
+                return
+            result.configure(state="normal")
+            result.delete("1.0", "end")
+            result.insert("1.0", value)
+            result.configure(state="disabled")
+
+        def run_checks():
+            if state["running"]:
+                return
+            state["running"] = True
+            run_button.configure(state="disabled")
+            write_result("Running checks…\\nDNS lookup and ping may take a few seconds.")
+            def worker():
+                lines = ["PANDA PC OPTIMIZER — INTERNET DIAGNOSTICS", "=" * 42]
+                try:
+                    started = time.monotonic()
+                    address = socket.gethostbyname("example.com")
+                    lines.append(f"DNS lookup: PASS — example.com resolved to {address} ({(time.monotonic()-started)*1000:.0f} ms)")
+                except Exception as exc:
+                    lines.append(f"DNS lookup: FAIL — {exc}")
+                try:
+                    command = ["ping", "-n", "1", "-w", "2500", "1.1.1.1"] if os.name == "nt" else ["ping", "-c", "1", "-W", "2", "1.1.1.1"]
+                    started = time.monotonic()
+                    proc = subprocess.run(command, capture_output=True, text=True, timeout=4, errors="replace")
+                    output = proc.stdout + "\n" + proc.stderr
+                    import re
+                    match = re.search(r"time[=<]\s*([\d.]+)\s*ms", output, re.IGNORECASE)
+                    if proc.returncode == 0:
+                        lines.append(f"Ping 1.1.1.1: PASS" + (f" — {match.group(1)} ms" if match else f" — {(time.monotonic()-started)*1000:.0f} ms total"))
+                    else:
+                        lines.append("Ping 1.1.1.1: FAIL — ping may be blocked by your network or firewall.")
+                except Exception as exc:
+                    lines.append(f"Ping check: unavailable — {exc}")
+                lines.extend(["", "These checks do not measure full internet speed or Wi-Fi signal quality.",
+                              "A failed ping alone does not prove the internet is down; some networks block ICMP."])
+                report = "\n".join(lines)
+                def finish():
+                    if win.winfo_exists():
+                        write_result(report)
+                        run_button.configure(state="normal")
+                    state["running"] = False
+                try:
+                    win.after(0, finish)
+                except tk.TclError:
+                    state["running"] = False
+            threading.Thread(target=worker, daemon=True).start()
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        run_button = self.button(actions, "Run diagnostics", run_checks, primary=True)
+        run_button.pack(side="left")
+        self.button(actions, "Open Network settings", lambda: self.open_uri("ms-settings:network-status"), compact=True).pack(side="right")
+
+    def show_optimization_check(self):
+        """Offer a read-only checklist based on current resource usage."""
+        win = tk.Toplevel(self)
+        win.title("Panda PC Optimizer — Optimization Check")
+        win.geometry("650x520")
+        win.minsize(540, 420)
+        win.configure(bg=BG)
+        self.label(win, "Optimization check", 21, FG, True, bg=BG).pack(anchor="w", padx=22, pady=(20, 4))
+        self.label(win, "A safe checklist based on current measurements; it won't change system settings.", 9, MUTED, bg=BG).pack(anchor="w", padx=22, pady=(0, 16))
+        score_var = tk.StringVar(value="Checking…")
+        tk.Label(win, textvariable=score_var, bg=BG, fg=PURPLE, font=("Segoe UI", 18, "bold")).pack(anchor="w", padx=22, pady=(0, 10))
+        list_frame = self.panel(win, padx=16, pady=14)
+        list_frame.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        body = tk.Frame(list_frame, bg=PANEL)
+        body.pack(fill="both", expand=True)
+
+        def run_check():
+            for child in body.winfo_children():
+                child.destroy()
+            checks = []
+            if psutil is None:
+                checks.append(("INFO", "Install psutil to enable detailed resource checks."))
+            else:
+                try:
+                    cpu = psutil.cpu_percent(interval=0.15)
+                    checks.append(("CHECK" if cpu >= 80 else "OK", f"CPU load: {cpu:.0f}% — " + ("check Task Manager for a busy app." if cpu >= 80 else "not heavily loaded right now.")))
+                except Exception:
+                    checks.append(("INFO", "CPU load is unavailable."))
+                try:
+                    mem = psutil.virtual_memory()
+                    checks.append(("CHECK" if mem.percent >= 85 else "OK", f"RAM use: {mem.percent:.0f}% — " + ("close unused apps you recognize if memory pressure persists." if mem.percent >= 85 else "memory pressure is not high right now.")))
+                except Exception:
+                    checks.append(("INFO", "RAM usage is unavailable."))
+                try:
+                    root = os.environ.get("SystemDrive", "C:") + "\\\\"
+                    disk = psutil.disk_usage(root)
+                    checks.append(("CHECK" if disk.percent >= 90 else "OK", f"System drive: {disk.percent:.0f}% full — " + ("review Windows Storage before installing large updates." if disk.percent >= 90 else "drive space looks reasonable.")))
+                except Exception:
+                    checks.append(("INFO", "System drive space is unavailable."))
+                try:
+                    battery = psutil.sensors_battery()
+                    if battery:
+                        checks.append(("INFO", f"Battery charge: {battery.percent:.0f}%; " + ("plugged in." if battery.power_plugged else "running on battery.")))
+                except Exception:
+                    pass
+            for status, message in checks:
+                color = RED if status == "CHECK" else GREEN if status == "OK" else ORANGE
+                row = tk.Frame(body, bg=PANEL)
+                row.pack(fill="x", pady=5)
+                self.label(row, f"[{status}]", 9, color, True).pack(side="left", anchor="n", padx=(0, 9))
+                self.label(row, message, 9, FG, wraplength=480, justify="left").pack(side="left", fill="x", expand=True)
+            flagged = sum(1 for status, _ in checks if status == "CHECK")
+            score_var.set(f"{flagged} item(s) to review" if flagged else "No urgent resource warning found")
+
+        actions = tk.Frame(win, bg=BG)
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        self.button(actions, "↻ Run checks again", run_check, primary=True).pack(side="left")
+        self.button(actions, "Open Task Manager", lambda: subprocess.Popen(["taskmgr.exe"]), compact=True).pack(side="right")
+        run_check()
 
     def show_network_monitor(self):
         """Show lightweight live system-wide network throughput without background polling."""
