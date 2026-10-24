@@ -37,8 +37,8 @@ class PandaOptimizer(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Panda PC Optimizer")
-        self.geometry("1180x760")
-        self.minsize(940, 650)
+        self.geometry("1360x820")
+        self.minsize(1080, 700)
         self.configure(bg=BG)
         try:
             self.app_logo = tk.PhotoImage(data=PANDA_LOGO_PNG_B64)
@@ -61,9 +61,9 @@ class PandaOptimizer(tk.Tk):
         style.theme_use("clam")
         style.configure("Treeview", background=PANEL, foreground=FG,
                         fieldbackground=PANEL, rowheight=30, borderwidth=0,
-                        font=("Segoe UI", 9))
+                        font=("Segoe UI", 9), rowheight=32)
         style.configure("Treeview.Heading", background=PANEL_HI, foreground=MUTED,
-                        relief="flat", font=("Segoe UI", 9, "bold"), padding=(8, 9))
+                        relief="flat", font=("Segoe UI", 9, "bold"), padding=(10, 11))
         style.map("Treeview", background=[("selected", PURPLE_DARK)],
                   foreground=[("selected", FG)])
         style.configure("Vertical.TScrollbar", background=PANEL, troughcolor=PANEL,
@@ -99,7 +99,7 @@ class PandaOptimizer(tk.Tk):
         shell = tk.Frame(self, bg=BG)
         shell.pack(fill="both", expand=True)
 
-        sidebar = tk.Frame(shell, bg=SIDEBAR, width=210)
+        sidebar = tk.Frame(shell, bg=SIDEBAR, width=224)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
@@ -170,14 +170,14 @@ class PandaOptimizer(tk.Tk):
         self.label(sidebar, "LOCAL ONLY  •  NO TELEMETRY", 7, MUTED).pack(anchor="w", padx=18, pady=(0, 17))
 
         main = tk.Frame(shell, bg=BG)
-        main.pack(side="left", fill="both", expand=True, padx=24, pady=21)
+        main.pack(side="left", fill="both", expand=True, padx=26, pady=23)
 
         top = tk.Frame(main, bg=BG)
         top.pack(fill="x", pady=(0, 19))
         left_top = tk.Frame(top, bg=BG)
         left_top.pack(side="left", fill="x", expand=True)
-        self.label(left_top, "System overview", 23, FG, True).pack(anchor="w")
-        self.label(left_top, "A clear picture of what your PC is doing right now.", 10, MUTED).pack(anchor="w", pady=(4, 0))
+        self.label(left_top, "System overview", 25, FG, True).pack(anchor="w")
+        self.label(left_top, "Live performance, resource usage, and quick system tools.", 10, MUTED).pack(anchor="w", pady=(4, 0))
         self.button(top, "↻  Refresh now", self.refresh, primary=True).pack(side="right", anchor="center")
 
         self.status_pill = tk.Label(top, text="● MONITORING", bg="#14251f", fg=GREEN,
@@ -198,7 +198,7 @@ class PandaOptimizer(tk.Tk):
         header.pack(fill="x", pady=(0, 10))
         titles = tk.Frame(header, bg=PANEL)
         titles.pack(side="left", fill="x", expand=True)
-        self.label(titles, "Top resource users", 13, FG, True).pack(anchor="w")
+        self.label(titles, "Top resource users", 14, FG, True).pack(anchor="w")
         self.label(titles, "Processes sorted by current CPU activity", 9, MUTED).pack(anchor="w", pady=(3, 0))
         self.search_entry = tk.Entry(header, textvariable=self.search, bg=PANEL_HI, fg=FG,
                                      insertbackground=FG, relief="flat", font=("Segoe UI", 9),
@@ -229,13 +229,13 @@ class PandaOptimizer(tk.Tk):
         self.button(actions, "Lower priority", lambda: self.change_process_priority(True), compact=True).pack(side="right", padx=(6, 0))
         self.button(actions, "End task…", self.end_task, compact=True).pack(side="right")
 
-        right = tk.Frame(mid, bg=BG, width=238)
+        right = tk.Frame(mid, bg=BG, width=250)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
 
         health = self.panel(right, padx=14, pady=14)
         health.pack(fill="x", pady=(0, 13))
-        self.label(health, "PC snapshot", 13, FG, True).pack(anchor="w")
+        self.label(health, "PC snapshot", 14, FG, True).pack(anchor="w")
         self.label(health, "Live system indicators", 9, MUTED).pack(anchor="w", pady=(3, 12))
         self.health_rows = {}
         for key, title in [("cpu", "Processor"), ("ram", "Memory"), ("disk", "Storage")]:
@@ -255,7 +255,7 @@ class PandaOptimizer(tk.Tk):
 
         tools = self.panel(right, padx=14, pady=14)
         tools.pack(fill="x", pady=(0, 13))
-        self.label(tools, "Quick access", 13, FG, True).pack(anchor="w", pady=(0, 10))
+        self.label(tools, "Quick access", 14, FG, True).pack(anchor="w", pady=(0, 10))
         for title, cmd in [
             ("Task Manager", lambda: subprocess.Popen(["taskmgr.exe"])),
             ("Startup apps", lambda: self.open_uri("ms-settings:startupapps")),
@@ -267,7 +267,7 @@ class PandaOptimizer(tk.Tk):
 
         tips = self.panel(right, padx=14, pady=14)
         tips.pack(fill="both", expand=True)
-        self.label(tips, "Small wins", 13, FG, True).pack(anchor="w")
+        self.label(tips, "Performance tips", 14, FG, True).pack(anchor="w")
         for tip in [
             "Disable apps you do not need at startup.",
             "Close unused browser tabs and launchers.",
@@ -286,7 +286,7 @@ class PandaOptimizer(tk.Tk):
         fg = FG if active else MUTED
         b = tk.Button(parent, text=text, command=command or (lambda: None),
                       bg=bg, fg=fg, activebackground=PURPLE_DARK, activeforeground=FG,
-                      relief="flat", bd=0, anchor="w", padx=17, pady=12,
+                      relief="flat", bd=0, anchor="w", padx=15, pady=9,
                       font=("Segoe UI", 10, "bold" if active else "normal"),
                       cursor="hand2")
         b.pack(fill="x", padx=10, pady=2)
