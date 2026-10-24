@@ -60,8 +60,8 @@ class PandaOptimizer(tk.Tk):
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure("Treeview", background=PANEL, foreground=FG,
-                        fieldbackground=PANEL, rowheight=30, borderwidth=0,
-                        font=("Segoe UI", 9), rowheight=32)
+                        fieldbackground=PANEL, rowheight=32, borderwidth=0,
+                        font=("Segoe UI", 9)
         style.configure("Treeview.Heading", background=PANEL_HI, foreground=MUTED,
                         relief="flat", font=("Segoe UI", 9, "bold"), padding=(10, 11))
         style.map("Treeview", background=[("selected", PURPLE_DARK)],
