@@ -118,7 +118,7 @@ class PandaOptimizer(tk.Tk):
         self.label(brand_text, "PC OPTIMIZER", 8, PURPLE, True).pack(anchor="w", pady=(1, 0))
 
         self.label(sidebar, "WORKSPACE", 8, MUTED, True).pack(anchor="w", padx=20, pady=(0, 9))
-        self.nav_button(sidebar, "◈   Overview", True)
+        self.nav_button(nav_frame, "◈   Overview", True)
         self.nav_button(sidebar, "▤   Processes", False, lambda: self.focus_processes())
         self.nav_button(sidebar, "⚙   Background services", False, lambda: self.show_services())
         self.nav_button(sidebar, "⇅   Network monitor", False, lambda: self.show_network_monitor())
